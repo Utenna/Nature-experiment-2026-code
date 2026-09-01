@@ -1,0 +1,33 @@
+# Data — never commit participant data
+Data/
+*.xlsx
+*.xls
+*.csv
+*.rds
+*.RData
+
+# ...but do keep the environment record
+!installed_packages.csv
+!environment-python-full.txt
+
+# Rendered outputs
+Output/
+*.pdf
+*.html
+/R/*_files/
+/R/*.docx
+
+# R session
+.Rhistory
+.Ruserdata
+.Rproj.user/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

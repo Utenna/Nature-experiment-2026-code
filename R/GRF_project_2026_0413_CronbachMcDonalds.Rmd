@@ -1,0 +1,585 @@
+---
+title: "Results"
+author: "Xueming Liu"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    # Enable a table of contents for easy navigation
+    toc: true 
+    # Limit TOC depth to 2 levels (H1 and H2 headings)
+    toc_depth: 2 
+    # Optional custom Word template file. Delete this line if you have no template.
+    # reference_docx: "custom_styles.docx"
+---
+
+```{r}
+rm(list = ls()) # Full wipe: ensure every Run All starts from a clean environment
+graphics.off()  # Close all graphics devices
+```
+
+
+# env set
+```{r setup, include=FALSE}
+# Set global options
+
+# 1. Load core dependency packages
+# Make sure these packages are installed: install.packages(c("mgm", "qgraph", "networktools", "dplyr", "gridExtra", "ggplot2", "missForest"))
+library(mgm)
+library(qgraph)
+library(networktools)
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+library(missForest) # core imputation package
+library(bruceR)    # bruceR provides the import() function
+library(here)
+
+# ==============================================================================
+# Path configuration (edit here; every path below references these)
+# ==============================================================================
+data_raw_dir   <- here::here('Data', 'Raw')          # raw data (read-only)
+data_proc_dir  <- here::here('Data', 'Processed')    # intermediate outputs
+out_tables_dir <- here::here('Output', '01-Env-health', 'Tables')
+out_fig_dir    <- here::here('Output', '01-Env-health', 'Figures')
+
+# Ensure output directories exist
+dir.create(data_proc_dir,  showWarnings = FALSE, recursive = TRUE)
+dir.create(out_tables_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(out_fig_dir,    showWarnings = FALSE, recursive = TRUE)
+
+```
+
+
+
+
+```{r}
+# ==============================================================================
+# Step 1: Data loading and preprocessing (safe version + CSV export)
+# ==============================================================================
+
+# 1. Define mapping values
+livnum_values <- c(1, 2, 3, 4, 5, 6, 7.5)  
+livarea_values <- c(75, 175, 225, 275, 325, 375, 425, 475, 575, 675, 775, 825, 875, 975, 1100) 
+
+# 2. Define new column names (97 variables)
+new_colnames <- c(
+  "e_city","e_dist","e_metro","e_Bus","e_wlkgrn","e_wvgrn","e_wlkblu", "e_wvblu","e_facil","e_Price","e_work","e_eduEL","e_comCen","e_medAc","e_alcig","e_neiAl","e_neiLow","e_neiSoci","e_themCo","e_clim","e_poll","e_lighting","e_privacy","e_narrow","e_PA","e_sleep","e_heaFood","e_lifestyle","e_safe",
+  "greenden","greennat","greendis" ,"greenfreq","greendura",
+  "blueden","bluenat","bluedis","bluefreq","bluedura",
+  'l_palgt','l_pamed','l_pahig','l_lgtdur','l_meddur','l_higdur','l_sitdur','l_leidur',"l_eathealth",'l_eatout','l_smoking','l_drinking',"l_medictest","l_adaptCop", "l_med_seek","l_info_seek", 
+  "m_conc","m_wea","m_pos","m_app","m_neg","m_est","m_res","m_eat",
+  "p_energy","p_pain","p_medD","p_genH","p_sleep","p_daily","p_work","p_mobility",
+  "SC_1","SC_2" ,"SC_3" ,"SC_4","SC_5",
+  "SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8",
+  "TBPB_1","TBPB_2","TBPB_3","TBPB_4","TBPB_5","TBPB_6","TBPB_7" ,"TBPB_8" ,"TBPB_9","TBPB_10",
+  'Pain tolerance', 'Fearless of death', "suicide idea","suicide plan","suicide attempt","Smean",
+  "SN_1","SN_2","SN_3","SN_4","SN_5","SN_6","SN_7","SN_8","SN_9",
+  "Age", "Gender", "Edu", "Emp", "Imm", "CD", "DurRes", "LivArea", 
+  "i_thwBelong", "i_perBurden", "i_acqCapability",
+  "Mental" ,"Physical","Social"
+)
+
+# 3. Build a temporary data frame (df_temp) -- without setNames
+df_temp <- bruceR::import(here::here('Data', 'Raw', 'merged_data0925.xlsx')) %>% 
+  dplyr::select('disU','disD',
+         'disMTR',
+         'disBus',
+         'diverFa',
+         'Price',
+         'eduE',
+         'eduL',
+         'comCen',
+         'medAc',
+         'walkG',
+         'walkB',
+         'neiAlo',
+         'neiLow',
+         'lowFa',
+         'neisocial', 
+         'themCo_R', 
+         'clim_R',
+         'conta',
+         'light_R', 
+         'privacy_R',
+         'narrow',
+         'winG',
+         'winB',
+         'lessWork',
+         'alcohol',
+         'cigarette',
+         'lowPhysi',
+         'sleep_R',
+         'heaFood_R',
+         'lifestyle_R',
+         'unsafe',
+         'greenden',
+         'greennat',
+         'greendis',
+         'greenfreq',
+         'greendura',
+         'blueden',
+         'bluenat',
+         'bluedis',
+         'bluefreq',
+         'bluedura',
+          'conc', 'wea', 'pos', 'app', 'neg', 'est', 'res', 'eat', 
+          "energy", "pain", "medD", "genH", "sleep", "daily", "work", "mobility",
+          'SNAa_1','SNAa_2','SNAa_3','SNAa_4','SNAa_5','SNAa_6','SNAa_7','SNAa_8','SNAa_9',
+          'SNBa_1','SNBa_2','SNBa_3','SNBa_4','SNBa_5','SNBa_6','SNBa_7','SNBa_8','SNBa_9',
+          'SC_1','SC_2','SC_3','SC_4','SC_5',
+          'SS_1','SS_2','SS_3','SS_4','SS_5','SS_6','SS_7','SS_8',
+          'AC_3','AC_4', 'AC_5',
+          'TBPB_1','TBPB_2',	'TBPB_3',	'TBPB_4'	,'TBPB_5'	,
+          'TBPB_6',	'TBPB_7',	'TBPB_8',	'TBPB_9',	'TBPB_10',
+          'AC_1','AC_2',
+          # SES
+          'age', 'gender', 'edu', 'emp', 'imm','disease',
+          # 'indinco',
+          'liviDura','livnum','livarea',
+          # added variables
+          'SC_96', 'SC_104', 'SC_103', 'SC_99', 'SC_105', 'SC_20',  'RMT_20', 'RMT_80', 'RMT_81', 'RMT_82', 'RMT_83', 'RMT_84','HIT_36' ,'HIT_37' , 'HIT_4',
+          # health behavior
+          'LF','MF','HF','AP_1','AP_2','AP_3','SP','LAF','HD_1','HD_2','HD_3','HD_4','OE','Sm','Dri',"RM"
+  ) %>%
+  dplyr::mutate(
+    livnum_val = livnum_values[as.numeric(livnum)],   
+    livarea_val = livarea_values[as.numeric(livarea)]  
+  ) %>%
+  dplyr::mutate( 
+    eduEL = (eduE + eduL) /2,
+    Smean = (AC_3 + AC_4 + AC_5) / 3,
+    SN_1 = (SNAa_1 + SNBa_1) / 2,
+    SN_2 = (SNAa_2 + SNBa_2) / 2,
+    SN_3 = (SNAa_3 + SNBa_3) / 2,
+    SN_4 = (SNAa_4 + SNBa_4) / 2,
+    SN_5 = (SNAa_5 + SNBa_5) / 2,
+    SN_6 = (SNAa_6 + SNBa_6) / 2,
+    SN_7 = (SNAa_7 + SNBa_7) / 2,
+    SN_8 = (SNAa_8 + SNBa_8) / 2,
+    SN_9 = (SNAa_9 + SNBa_9) / 2,
+    livareaperson = livarea_val / livnum_val
+  ) %>%
+  dplyr::mutate(
+    TB = (TBPB_1 + TBPB_2 + TBPB_3 + TBPB_4 + TBPB_5)/5,
+    PB = ((6-TBPB_6) + (6-TBPB_7) + TBPB_8 + TBPB_9 + (6-TBPB_10))/5,
+    AC = ((6-AC_1)+AC_2)/2
+  ) %>%
+  dplyr::select(-starts_with("SNAa_"), -starts_with("SNBa_")) %>%
+  dplyr::mutate(disease = ifelse(disease == "1", 1, 0)) %>%
+  dplyr::filter(gender %in% c(1, 2)) %>% 
+  dplyr::mutate(
+    liviDura = case_when(
+      liviDura == "1-2 年" ~ 1,
+      liviDura == "2-3 年" ~ 1,
+      liviDura == "3-4 年" ~ 1,
+      liviDura == "4-5 年" ~ 1,
+      liviDura == "5-6年" ~ 2,
+      liviDura == "6-7年" ~ 2,
+      liviDura == "7-8年" ~ 2,
+      liviDura == "8-9年" ~ 2,
+      liviDura == "9-10年" ~ 2,
+      liviDura == "10-11年" ~ 3,
+      liviDura == "11-12年" ~ 3,
+      liviDura == "12-13年" ~ 3,
+      liviDura == "13-14年" ~ 3,
+      liviDura == "14-15年" ~ 3,
+      liviDura == "15-16年" ~ 4,
+      liviDura == "16-17年" ~ 4,
+      liviDura == "17-18年" ~ 4,
+      liviDura == "18-19年" ~ 4,
+      liviDura == "19-20年" ~ 4,
+      liviDura == "超過20年" ~ 5,
+      TRUE ~ NA_real_ 
+    )
+  ) %>%
+  dplyr::mutate(edu=as.numeric(edu)) %>%
+  # Compute map_SC and health literacy
+  mutate(across(c('SC_96', 'SC_104', 'SC_103', 'SC_99', 'SC_105', 'SC_20'), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_adaptCop_raw = SC_96 + SC_104 + SC_103 + SC_99 + SC_105 + SC_20) %>%
+  mutate(across(c(RMT_20, RMT_80, RMT_81, RMT_82, RMT_83, RMT_84), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_med_seek = if_else((RMT_20 + RMT_80 + RMT_81 + RMT_82 + RMT_83 + RMT_84) > 0, 1, 0)) %>%
+  mutate(across(c(HIT_36, HIT_37, HIT_4), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_info_seek = HIT_36 + HIT_37 + HIT_4) %>%
+  
+  dplyr::mutate(
+    HDietmean = rowMeans(dplyr::select(.,'HD_1', 'HD_2', 'HD_3', 'HD_4'),na.rm = TRUE),
+    mehmean = rowMeans(dplyr::select(.,'conc', 'wea', 'pos', 'app', 'neg', 'est', 'res', 'eat'),na.rm = TRUE),
+    pyhmean = rowMeans(dplyr::select(.,"energy", "pain", "medD", "genH", "sleep", "daily", "work", "mobility"),na.rm = TRUE),
+    sohmean = rowMeans(dplyr::select(.,'SN_1','SN_2','SN_3','SN_4','SN_5','SN_6','SN_7','SN_8','SN_9','SC_1','SC_2','SC_3','SC_4','SC_5','SS_1','SS_2','SS_3','SS_4','SS_5','SS_6','SS_7','SS_8'), na.rm = TRUE)
+  ) %>%
+  mutate(
+    e_alcig_R = 6-(alcohol+cigarette)/2,
+    Work_R  = 6 - lessWork,
+    safe_R  = 6 - unsafe,
+    facil  = (diverFa + (6-lowFa)) / 2,
+    neiAlo_R = 6 - neiAlo,
+    neiLow_R = 6 - neiLow,
+    PA  =  lowPhysi,
+    conta_R = 6 - conta,
+    narrow_R = 6 - narrow,
+    SP_R = 14 - SP,
+    OE_R = 8 - OE,
+    Sm_R = 10 - Sm,
+    Dri_R = 10 - Dri,
+    neg_R = 6 - neg,
+    pain_R = 6 - pain,
+    medD_R = 6 - medD
+  ) %>%
+  dplyr::select(-livarea,-livnum, -livarea_val, -livnum_val,
+                -HD_1,-HD_2,-HD_3,-HD_4,-lessWork,-unsafe,-diverFa, -lowFa,-lowPhysi) %>%
+  # Final selection (order and count must match new_colnames)
+  dplyr::select("disU","disD","disMTR","disBus","walkG","winG","walkB","winB","facil","Price","Work_R", "eduEL","comCen","medAc","e_alcig_R","neiAlo_R","neiLow_R","neisocial","themCo_R","clim_R","conta_R","light_R","privacy_R","narrow_R","PA","sleep_R","heaFood_R","lifestyle_R","safe_R",
+                "greenden","greennat","greendis" ,"greenfreq","greendura",
+                "blueden","bluenat","bluedis","bluefreq","bluedura",
+                "LF","MF","HF","AP_1","AP_2","AP_3","SP_R","LAF","HDietmean","OE","Sm","Dri","RM","l_adaptCop_raw","l_med_seek","l_info_seek",
+                "conc","wea","pos","app","neg_R","est","res","eat",
+                "energy","pain_R","medD_R","genH","sleep","daily","work","mobility",
+                "SC_1","SC_2" ,"SC_3" ,"SC_4","SC_5",
+                "SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8",
+                "TBPB_1","TBPB_2","TBPB_3","TBPB_4","TBPB_5","TBPB_6","TBPB_7" ,"TBPB_8" ,"TBPB_9","TBPB_10",
+                "AC_1","AC_2", "AC_3","AC_4","AC_5","Smean",
+                "SN_1","SN_2","SN_3","SN_4","SN_5","SN_6","SN_7","SN_8","SN_9",
+                "age","gender","edu","emp","imm","disease","liviDura","livareaperson",
+                "TB","PB","AC",
+                "mehmean" ,"pyhmean","sohmean" ) %>%
+  mutate(
+    age     = as.numeric(age),
+    gender  = factor(gender),
+    edu     = factor(edu, ordered = TRUE), 
+    emp     = factor(emp),
+    imm     = factor(imm),
+    disease = factor(disease),
+    liviDura = as.numeric(liviDura),
+    livareaperson = as.numeric(livareaperson)
+  )
+
+# --- 4. Run safety check ---
+current_cols <- ncol(df_temp)
+target_cols <- length(new_colnames)
+
+if(current_cols != target_cols) {
+  msg <- paste0(
+    "Column count mismatch!\n",
+    "------------------------------\n",
+    "Current number of columns: ", current_cols, "\n",
+    "Number of new variable names: ", target_cols, "\n",
+    "Difference: ", current_cols - target_cols, "\n",
+    "------------------------------\n",
+    "Check whether the select() statement is missing variables, or new_colnames is defined incorrectly."
+  )
+  stop(msg)
+} else {
+  message("Column count check passed (", current_cols, " vs ", target_cols, ").")
+  
+  # --- 5. Safe rename ---
+  df <- df_temp %>% setNames(new_colnames)
+  message("Data frame df created and renamed successfully.")
+  
+  # --- 6. Export CSV ---
+  write.csv(df, file.path(data_proc_dir, "data_cleaned_step1.csv"), row.names = FALSE, fileEncoding = "UTF-8")
+  message("CSV exported: data_cleaned_step1.csv")
+}
+
+# Report overall missingness
+cat("\nOverall missingness of the data frame:\n")
+print(skimr::skim(df))
+```
+
+
+# Data input
+```{r}
+# ==============================================================================
+# Step 1: Variable definition, selection and renaming
+# ==============================================================================
+library(dplyr)
+library(missForest)
+library(psych)
+library(tibble)
+
+# 1.1 Define original variable names (list kept as provided)
+e_orig_names <- c("e_city", "e_dist", "e_metro", "e_Bus", "e_wlkgrn", "e_wvgrn", "e_wlkblu", "e_wvblu",
+                  "e_facil", "e_Price", "e_work", "e_eduEL", "e_comCen", "e_medAc", "e_alcig", 
+                  "e_neiAl", "e_neiLow", "e_neiSoci", "e_themCo", "e_clim", "e_poll", "e_lighting",
+                  "e_privacy", "e_narrow", "e_PA", "e_sleep", "e_heaFood", "e_lifestyle", "e_safe")
+
+l_orig_names <- c('l_palgt', 'l_pamed', 'l_pahig', 'l_lgtdur', 'l_meddur', 'l_higdur', 
+                  'l_sitdur', 'l_leidur', "l_eathealth", 'l_eatout', 'l_smoking', 
+                  'l_drinking', "l_medictest", "l_adaptCop", "l_med_seek", "l_info_seek")
+
+mh_orig_names <- c('m_conc', 'm_wea', 'm_pos', 'm_app', 'm_neg', 'm_est', 'm_res', 'm_eat')
+ph_orig_names <- c("p_energy","p_pain","p_medD","p_genH","p_sleep","p_daily","p_work","p_mobility")
+sh_orig_names <- c("SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8")
+ses_vars <- c("Age", "Gender", "Edu", "Emp", "Imm", "CD", "DurRes", "LivArea")
+
+# 1.2 Select data
+all_vars_for_imputation <- c(e_orig_names, l_orig_names, mh_orig_names, ph_orig_names, sh_orig_names, ses_vars)
+
+# Check that the variables exist
+if(!all(all_vars_for_imputation %in% colnames(df))) {
+  missing_vars <- all_vars_for_imputation[!all_vars_for_imputation %in% colnames(df)]
+  stop(paste("Error: the data frame is missing the following columns:", paste(missing_vars, collapse=", ")))
+}
+
+df_analysis <- df[, all_vars_for_imputation]
+
+# 1.3 Rename (build old-to-new name mapping)
+# Generate new names
+e_item_names <- paste0("E", 1:length(e_orig_names))
+l_item_names <- paste0("L", 1:length(l_orig_names))
+mh_item_names <- paste0("M", 1:length(mh_orig_names))
+ph_item_names <- paste0("P", 1:length(ph_orig_names))
+sh_item_names <- paste0("S", 1:length(sh_orig_names))
+
+# Apply the renaming
+names(df_analysis)[match(e_orig_names, names(df_analysis))] <- e_item_names
+names(df_analysis)[match(l_orig_names, names(df_analysis))] <- l_item_names
+names(df_analysis)[match(mh_orig_names, names(df_analysis))] <- mh_item_names
+names(df_analysis)[match(ph_orig_names, names(df_analysis))] <- ph_item_names
+names(df_analysis)[match(sh_orig_names, names(df_analysis))] <- sh_item_names
+
+# Reorder (E, L, M, P, S, SES)
+core_node_names <- c(e_item_names, l_item_names, mh_item_names, ph_item_names, sh_item_names)
+all_vars_clean <- c(core_node_names, ses_vars)
+df_analysis <- df_analysis[, all_vars_clean]
+
+message("Variable selection and renaming complete.")
+
+# ==============================================================================
+# Step 2: Descriptive statistics of the raw data (pre-imputation)
+# ==============================================================================
+
+# Define a generic descriptive-statistics function
+get_descriptive_stats <- function(data, label="Stats") {
+  
+  data_num <- data %>% mutate(across(everything(), ~as.numeric(.)))
+  
+  # Use psych::describe for basic statistics
+  desc <- psych::describe(data_num, na.rm = TRUE) %>%
+    as.data.frame() %>%
+    rownames_to_column("Variable") %>%
+    dplyr::select(Variable, mean, sd, min, max, skew)
+  
+  missing_counts <- sapply(data, function(x) sum(is.na(x)))
+  var_types <- sapply(data, function(x) class(x)[1])
+  
+  # Merge
+  final_tab <- desc %>%
+    mutate(
+      Missing_N = missing_counts[Variable],
+      Missing_Pct = round(Missing_N / nrow(data) * 100, 2),
+      Type = var_types[Variable]
+    ) %>%
+    mutate(across(c(mean, sd, skew), ~round(., 3))) # keep 3 decimal places
+  
+  return(final_tab)
+}
+
+# 2.1 Ensure SES variables have the right format (for statistics)
+ses_factor_vars <- c("Gender", "Emp", "Imm", "CD", "Edu")
+df_raw_stat <- df_analysis
+for(col in ses_factor_vars) {
+  if(col %in% names(df_raw_stat)) df_raw_stat[[col]] <- as.factor(df_raw_stat[[col]])
+}
+
+# 2.2 Build and export the raw statistics table
+stats_raw <- get_descriptive_stats(df_raw_stat)
+
+# Export CSV
+write.csv(stats_raw, file.path(out_tables_dir, "Table_Descriptive_Raw_Data.csv"), row.names = FALSE)
+message("Raw-data statistics table exported: Table_Descriptive_Raw_Data.csv")
+
+# Print a preview (first few rows)
+print(head(stats_raw))
+
+# ==============================================================================
+# Step 3: missForest imputation
+# ==============================================================================
+
+# 3.1 Prepare data for imputation (categorical variables must be factors)
+df_for_imp <- df_analysis
+for(col in ses_factor_vars) {
+  df_for_imp[[col]] <- as.factor(df_for_imp[[col]])
+}
+
+message("\nStarting missForest imputation (ntree=500)... this may take a few minutes...")
+
+# 3.2 Run the imputation
+set.seed(123) # fix the random seed for reproducibility
+imp_result <- missForest(df_for_imp, 
+                         verbose = TRUE, 
+                         ntree = 500,     
+                         maxiter = 10)
+
+# Extract the imputed data
+df_clean <- imp_result$ximp
+
+# 3.3 Print the error report
+message("\nImputation complete. OOB error estimate:")
+print(imp_result$OOBerror)
+
+# ==============================================================================
+# Step 4: Pre/post-imputation comparison report
+# ==============================================================================
+
+# 4.1 Build the post-imputation statistics table
+stats_imp <- get_descriptive_stats(df_clean)
+
+# 4.2 Merge for comparison
+comparison_table <- stats_raw %>%
+  dplyr::select(Variable, Raw_Mean = mean, Raw_SD = sd, Raw_Skew = skew, Missing_N) %>%
+  left_join(
+    stats_imp %>% dplyr::select(Variable, Imp_Mean = mean, Imp_SD = sd, Imp_Skew = skew),
+    by = "Variable"
+  ) %>%
+  mutate(
+    Mean_Diff = round(Imp_Mean - Raw_Mean, 4),
+    SD_Diff = round(Imp_SD - Raw_SD, 4)
+  )
+
+# 4.3 Export the comparison table
+write.csv(comparison_table, file.path(out_tables_dir, "Table_Imputation_Check.csv"), row.names = FALSE)
+message("Pre/post-imputation comparison table exported: Table_Imputation_Check.csv")
+
+# 4.4 Check for large changes (warn if a mean shifts by more than 0.5)
+large_changes <- comparison_table %>% filter(abs(Mean_Diff) > 0.5)
+if(nrow(large_changes) > 0) {
+  message("Warning: the following variables show a large mean change after imputation, please check:")
+  print(large_changes$Variable)
+} else {
+  message("Check passed: no large mean shift between pre- and post-imputation.")
+}
+
+
+
+
+# ==============================================================================
+# Step 5: Final output (prepare for the next splitting step)
+# ==============================================================================
+
+for(col in colnames(df_clean)) {
+  if(is.factor(df_clean[[col]])) {
+    df_clean[[col]] <- as.numeric(as.character(df_clean[[col]]))
+    if(any(is.na(df_clean))) stop("Numeric conversion introduced NA")
+  }
+}
+
+message("\nReady. df_clean is now a complete numeric data frame with no missing values.")
+message("Continue with the Step 4 (data splitting) code.")
+
+
+
+```
+```{r}
+# ==============================================================================
+# Supplementary analysis: scale reliability and validity
+# ==============================================================================
+
+library(psych)
+library(lavaan)
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+message("\n[Reliability & validity] Computing reliability (alpha & omega) and validity (CFA)...")
+
+# Ensure output directories exist
+if(!exists("out_tables_dir")) out_tables_dir <- here::here('Output', '01-Env-health', 'Tables')
+if(!dir.exists(out_tables_dir)) dir.create(out_tables_dir, recursive = TRUE)
+
+# --- 1. Compute reliability (Cronbach's alpha & McDonald's omega) ---
+message("   Computing internal-consistency coefficients...")
+
+df_for_psych <- as.data.frame(lapply(df_clean, function(x) as.numeric(as.character(x))))
+
+# Define a helper function for reliability
+calc_reliability <- function(data, items, domain_name) {
+  sub_data <- data[, items]
+  
+  # Compute alpha
+  alpha_res <- psych::alpha(sub_data, check.keys = TRUE)$total$raw_alpha
+  
+  # Compute omega (suppress warnings, force single-factor extraction)
+  omega_res <- tryCatch({
+    suppressWarnings(psych::omega(sub_data, nfactors = 1, plot = FALSE)$omega.tot)
+  }, error = function(e) NA)
+  
+  return(data.frame(
+    Domain = domain_name,
+    Items_Count = length(items),
+    Cronbach_Alpha = round(alpha_res, 3),
+    McDonald_Omega = round(omega_res, 3)
+  ))
+}
+
+rel_table <- bind_rows(
+  calc_reliability(df_for_psych, e_item_names, "Environment"),
+  calc_reliability(df_for_psych, l_item_names, "Lifestyle"),
+  calc_reliability(df_for_psych, mh_item_names, "Mental_Health"),
+  calc_reliability(df_for_psych, ph_item_names, "Physical_Health"),
+  calc_reliability(df_for_psych, sh_item_names, "Social_Health")
+)
+
+print(rel_table)
+
+# --- 2. Compute construct validity (CFA) ---
+message("\n   Running confirmatory factor analysis (CFA); this may take up to a minute...")
+
+# Build the lavaan CFA model syntax automatically
+cfa_model_syntax <- paste0(
+  "Environment =~ ", paste(e_item_names, collapse = " + "), "\n",
+  "Lifestyle =~ ", paste(l_item_names, collapse = " + "), "\n",
+  "Mental_Health =~ ", paste(mh_item_names, collapse = " + "), "\n",
+  "Physical_Health =~ ", paste(ph_item_names, collapse = " + "), "\n",
+  "Social_Health =~ ", paste(sh_item_names, collapse = " + ")
+)
+
+# Fit the CFA model with maximum likelihood (ML)
+fit_cfa <- lavaan::cfa(model = cfa_model_syntax, 
+                       data = df_for_psych, 
+                       std.lv = TRUE,      # standardise latent variables
+                       estimator = "ML")   
+
+# Extract key fit indices
+fit_measures <- fitMeasures(fit_cfa, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr"))
+
+cfa_summary <- data.frame(
+  Metric = c("Chi-Square (χ2)", "Degrees of Freedom (df)", "CFI", "TLI", "RMSEA", "SRMR"),
+  Value = c(
+    round(fit_measures["chisq"], 2),
+    fit_measures["df"],
+    round(fit_measures["cfi"], 3),
+    round(fit_measures["tli"], 3),
+    round(fit_measures["rmsea"], 3),
+    round(fit_measures["srmr"], 3)
+  )
+)
+
+message("\n   CFA overall fit indices (model fit):")
+print(cfa_summary)
+
+# Extract standardised factor loadings for all items
+loadings <- standardizedSolution(fit_cfa) %>%
+  dplyr::filter(op == "=~") %>%
+  dplyr::select(Domain = lhs, Item = rhs, Std_Loading = est.std, P_value = pvalue) %>%
+  dplyr::mutate(
+    Std_Loading = round(Std_Loading, 3),
+    Significance = case_when(
+      P_value < 0.001 ~ "***",
+      P_value < 0.01 ~ "**",
+      P_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  ) %>%
+  dplyr::select(-P_value)
+
+# --- 3. Export results ---
+message("\n   Exporting the reliability/validity report (CSV)...")
+
+write.csv(rel_table, file.path(out_tables_dir, "Table_S0A_Reliability.csv"), row.names = FALSE)
+write.csv(cfa_summary, file.path(out_tables_dir, "Table_S0B_CFA_Fit_Indices.csv"), row.names = FALSE)
+write.csv(loadings, file.path(out_tables_dir, "Table_S0C_CFA_Factor_Loadings.csv"), row.names = FALSE)
+
+message("Reliability/validity analysis complete. See the Table_S0 files in the Tables folder.")
+```
+
+

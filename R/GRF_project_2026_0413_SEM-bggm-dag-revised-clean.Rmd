@@ -1,0 +1,2900 @@
+---
+title: "Results"
+author: "Xueming Liu"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    # Enable a table of contents for easy navigation
+    toc: true 
+    # Limit TOC depth to 2 levels (H1 and H2 headings)
+    toc_depth: 2 
+    # Optional custom Word template file. Delete this line if you have no template.
+    # reference_docx: "custom_styles.docx"
+---
+
+```{r}
+#rm(list = ls()) # Full wipe: ensure every Run All starts from a clean environment
+#graphics.off()  # Close all graphics devices
+```
+
+
+# env set
+```{r setup, include=FALSE}
+# Set global options
+
+# 1. Load core dependency packages
+# Make sure these packages are installed: install.packages(c("mgm", "qgraph", "networktools", "dplyr", "gridExtra", "ggplot2", "missForest"))
+library(mgm)
+library(qgraph)
+library(networktools)
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+library(missForest) # core imputation package
+library(bruceR)    # bruceR provides the import() function
+library(here)
+
+# ==============================================================================
+# Path configuration (edit here; every path below references these)
+# ==============================================================================
+data_raw_dir   <- here::here('Data', 'Raw')          # raw data (read-only)
+data_proc_dir  <- here::here('Data', 'Processed')    # intermediate outputs
+out_tables_dir <- here::here('Output', '01-Env-health', 'Tables')
+out_fig_dir    <- here::here('Output', '01-Env-health', 'Figures')
+
+# Ensure output directories exist
+dir.create(data_proc_dir,  showWarnings = FALSE, recursive = TRUE)
+dir.create(out_tables_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(out_fig_dir,    showWarnings = FALSE, recursive = TRUE)
+
+```
+
+
+
+
+```{r}
+# ==============================================================================
+# Step 1: Data loading and preprocessing (safe version + CSV export)
+# ==============================================================================
+
+# 1. Define mapping values
+livnum_values <- c(1, 2, 3, 4, 5, 6, 7.5)  
+livarea_values <- c(75, 175, 225, 275, 325, 375, 425, 475, 575, 675, 775, 825, 875, 975, 1100) 
+
+# 2. Define new column names (97 variables)
+new_colnames <- c(
+  "e_city","e_dist","e_metro","e_Bus","e_wlkgrn","e_wvgrn","e_wlkblu", "e_wvblu","e_facil","e_Price","e_work","e_eduEL","e_comCen","e_medAc","e_alcig","e_neiAl","e_neiLow","e_neiSoci","e_themCo","e_clim","e_poll","e_lighting","e_privacy","e_narrow","e_PA","e_sleep","e_heaFood","e_lifestyle","e_safe",
+  "greenden","greennat","greendis" ,"greenfreq","greendura",
+  "blueden","bluenat","bluedis","bluefreq","bluedura",
+  'l_palgt','l_pamed','l_pahig','l_lgtdur','l_meddur','l_higdur','l_sitdur','l_leidur',"l_eathealth",'l_eatout','l_smoking','l_drinking',"l_medictest","l_adaptCop", "l_med_seek","l_info_seek", 
+  "m_conc","m_wea","m_pos","m_app","m_neg","m_est","m_res","m_eat",
+  "p_energy","p_pain","p_medD","p_genH","p_sleep","p_daily","p_work","p_mobility",
+  "SC_1","SC_2" ,"SC_3" ,"SC_4","SC_5",
+  "SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8",
+  "TBPB_1","TBPB_2","TBPB_3","TBPB_4","TBPB_5","TBPB_6","TBPB_7" ,"TBPB_8" ,"TBPB_9","TBPB_10",
+  'Pain tolerance', 'Fearless of death', "suicide idea","suicide plan","suicide attempt","Smean",
+  "SN_1","SN_2","SN_3","SN_4","SN_5","SN_6","SN_7","SN_8","SN_9",
+  "Age", "Gender", "Edu", "Emp", "Imm", "CD", "DurRes", "LivArea", 
+  "i_thwBelong", "i_perBurden", "i_acqCapability",
+  "Mental" ,"Physical","Social"
+)
+
+# 3. Build a temporary data frame (df_temp) -- without setNames
+df_temp <- bruceR::import(here::here('Data', 'Raw', 'merged_data0925.xlsx')) %>% 
+  dplyr::select('disU','disD',
+         'disMTR',
+         'disBus',
+         'diverFa',
+         'Price',
+         'eduE',
+         'eduL',
+         'comCen',
+         'medAc',
+         'walkG',
+         'walkB',
+         'neiAlo',
+         'neiLow',
+         'lowFa',
+         'neisocial', 
+         'themCo_R', 
+         'clim_R',
+         'conta',
+         'light_R', 
+         'privacy_R',
+         'narrow',
+         'winG',
+         'winB',
+         'lessWork',
+         'alcohol',
+         'cigarette',
+         'lowPhysi',
+         'sleep_R',
+         'heaFood_R',
+         'lifestyle_R',
+         'unsafe',
+         'greenden',
+         'greennat',
+         'greendis',
+         'greenfreq',
+         'greendura',
+         'blueden',
+         'bluenat',
+         'bluedis',
+         'bluefreq',
+         'bluedura',
+          'conc', 'wea', 'pos', 'app', 'neg', 'est', 'res', 'eat', 
+          "energy", "pain", "medD", "genH", "sleep", "daily", "work", "mobility",
+          'SNAa_1','SNAa_2','SNAa_3','SNAa_4','SNAa_5','SNAa_6','SNAa_7','SNAa_8','SNAa_9',
+          'SNBa_1','SNBa_2','SNBa_3','SNBa_4','SNBa_5','SNBa_6','SNBa_7','SNBa_8','SNBa_9',
+          'SC_1','SC_2','SC_3','SC_4','SC_5',
+          'SS_1','SS_2','SS_3','SS_4','SS_5','SS_6','SS_7','SS_8',
+          'AC_3','AC_4', 'AC_5',
+          'TBPB_1','TBPB_2',	'TBPB_3',	'TBPB_4'	,'TBPB_5'	,
+          'TBPB_6',	'TBPB_7',	'TBPB_8',	'TBPB_9',	'TBPB_10',
+          'AC_1','AC_2',
+          # SES
+          'age', 'gender', 'edu', 'emp', 'imm','disease',
+          # 'indinco',
+          'liviDura','livnum','livarea',
+          # added variables
+          'SC_96', 'SC_104', 'SC_103', 'SC_99', 'SC_105', 'SC_20',  'RMT_20', 'RMT_80', 'RMT_81', 'RMT_82', 'RMT_83', 'RMT_84','HIT_36' ,'HIT_37' , 'HIT_4',
+          # health behavior
+          'LF','MF','HF','AP_1','AP_2','AP_3','SP','LAF','HD_1','HD_2','HD_3','HD_4','OE','Sm','Dri',"RM"
+  ) %>%
+  dplyr::mutate(
+    livnum_val = livnum_values[as.numeric(livnum)],   
+    livarea_val = livarea_values[as.numeric(livarea)]  
+  ) %>%
+  dplyr::mutate( 
+    eduEL = (eduE + eduL) /2,
+    Smean = (AC_3 + AC_4 + AC_5) / 3,
+    SN_1 = (SNAa_1 + SNBa_1) / 2,
+    SN_2 = (SNAa_2 + SNBa_2) / 2,
+    SN_3 = (SNAa_3 + SNBa_3) / 2,
+    SN_4 = (SNAa_4 + SNBa_4) / 2,
+    SN_5 = (SNAa_5 + SNBa_5) / 2,
+    SN_6 = (SNAa_6 + SNBa_6) / 2,
+    SN_7 = (SNAa_7 + SNBa_7) / 2,
+    SN_8 = (SNAa_8 + SNBa_8) / 2,
+    SN_9 = (SNAa_9 + SNBa_9) / 2,
+    livareaperson = livarea_val / livnum_val
+  ) %>%
+  dplyr::mutate(
+    TB = (TBPB_1 + TBPB_2 + TBPB_3 + TBPB_4 + TBPB_5)/5,
+    PB = ((6-TBPB_6) + (6-TBPB_7) + TBPB_8 + TBPB_9 + (6-TBPB_10))/5,
+    AC = ((6-AC_1)+AC_2)/2
+  ) %>%
+  dplyr::select(-starts_with("SNAa_"), -starts_with("SNBa_")) %>%
+  dplyr::mutate(disease = ifelse(disease == "1", 1, 0)) %>%
+  dplyr::filter(gender %in% c(1, 2)) %>% 
+  dplyr::mutate(
+    liviDura = case_when(
+      liviDura == "1-2 年" ~ 1,
+      liviDura == "2-3 年" ~ 1,
+      liviDura == "3-4 年" ~ 1,
+      liviDura == "4-5 年" ~ 1,
+      liviDura == "5-6年" ~ 2,
+      liviDura == "6-7年" ~ 2,
+      liviDura == "7-8年" ~ 2,
+      liviDura == "8-9年" ~ 2,
+      liviDura == "9-10年" ~ 2,
+      liviDura == "10-11年" ~ 3,
+      liviDura == "11-12年" ~ 3,
+      liviDura == "12-13年" ~ 3,
+      liviDura == "13-14年" ~ 3,
+      liviDura == "14-15年" ~ 3,
+      liviDura == "15-16年" ~ 4,
+      liviDura == "16-17年" ~ 4,
+      liviDura == "17-18年" ~ 4,
+      liviDura == "18-19年" ~ 4,
+      liviDura == "19-20年" ~ 4,
+      liviDura == "超過20年" ~ 5,
+      TRUE ~ NA_real_ 
+    )
+  ) %>%
+  dplyr::mutate(edu=as.numeric(edu)) %>%
+  # Compute map_SC and health literacy
+  mutate(across(c('SC_96', 'SC_104', 'SC_103', 'SC_99', 'SC_105', 'SC_20'), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_adaptCop_raw = SC_96 + SC_104 + SC_103 + SC_99 + SC_105 + SC_20) %>%
+  mutate(across(c(RMT_20, RMT_80, RMT_81, RMT_82, RMT_83, RMT_84), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_med_seek = if_else((RMT_20 + RMT_80 + RMT_81 + RMT_82 + RMT_83 + RMT_84) > 0, 1, 0)) %>%
+  mutate(across(c(HIT_36, HIT_37, HIT_4), ~tidyr::replace_na(., 0))) %>%
+  mutate(l_info_seek = HIT_36 + HIT_37 + HIT_4) %>%
+  
+  dplyr::mutate(
+    HDietmean = rowMeans(dplyr::select(.,'HD_1', 'HD_2', 'HD_3', 'HD_4'),na.rm = TRUE),
+    mehmean = rowMeans(dplyr::select(.,'conc', 'wea', 'pos', 'app', 'neg', 'est', 'res', 'eat'),na.rm = TRUE),
+    pyhmean = rowMeans(dplyr::select(.,"energy", "pain", "medD", "genH", "sleep", "daily", "work", "mobility"),na.rm = TRUE),
+    sohmean = rowMeans(dplyr::select(.,'SN_1','SN_2','SN_3','SN_4','SN_5','SN_6','SN_7','SN_8','SN_9','SC_1','SC_2','SC_3','SC_4','SC_5','SS_1','SS_2','SS_3','SS_4','SS_5','SS_6','SS_7','SS_8'), na.rm = TRUE)
+  ) %>%
+  mutate(
+    e_alcig_R = 6-(alcohol+cigarette)/2,
+    Work_R  = 6 - lessWork,
+    safe_R  = 6 - unsafe,
+    facil  = (diverFa + (6-lowFa)) / 2,
+    neiAlo_R = 6 - neiAlo,
+    neiLow_R = 6 - neiLow,
+    PA  =  lowPhysi,
+    conta_R = 6 - conta,
+    narrow_R = 6 - narrow,
+    SP_R = 14 - SP,
+    OE_R = 8 - OE,
+    Sm_R = 10 - Sm,
+    Dri_R = 10 - Dri,
+    neg_R = 6 - neg,
+    pain_R = 6 - pain,
+    medD_R = 6 - medD
+  ) %>%
+  dplyr::select(-livarea,-livnum, -livarea_val, -livnum_val,
+                -HD_1,-HD_2,-HD_3,-HD_4,-lessWork,-unsafe,-diverFa, -lowFa,-lowPhysi) %>%
+  # Final selection (order and count must match new_colnames)
+  dplyr::select("disU","disD","disMTR","disBus","walkG","winG","walkB","winB","facil","Price","Work_R", "eduEL","comCen","medAc","e_alcig_R","neiAlo_R","neiLow_R","neisocial","themCo_R","clim_R","conta_R","light_R","privacy_R","narrow_R","PA","sleep_R","heaFood_R","lifestyle_R","safe_R",
+                "greenden","greennat","greendis" ,"greenfreq","greendura",
+                "blueden","bluenat","bluedis","bluefreq","bluedura",
+                "LF","MF","HF","AP_1","AP_2","AP_3","SP_R","LAF","HDietmean","OE","Sm","Dri","RM","l_adaptCop_raw","l_med_seek","l_info_seek",
+                "conc","wea","pos","app","neg_R","est","res","eat",
+                "energy","pain_R","medD_R","genH","sleep","daily","work","mobility",
+                "SC_1","SC_2" ,"SC_3" ,"SC_4","SC_5",
+                "SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8",
+                "TBPB_1","TBPB_2","TBPB_3","TBPB_4","TBPB_5","TBPB_6","TBPB_7" ,"TBPB_8" ,"TBPB_9","TBPB_10",
+                "AC_1","AC_2", "AC_3","AC_4","AC_5","Smean",
+                "SN_1","SN_2","SN_3","SN_4","SN_5","SN_6","SN_7","SN_8","SN_9",
+                "age","gender","edu","emp","imm","disease","liviDura","livareaperson",
+                "TB","PB","AC",
+                "mehmean" ,"pyhmean","sohmean" ) %>%
+  mutate(
+    age     = as.numeric(age),
+    gender  = factor(gender),
+    edu     = factor(edu, ordered = TRUE), 
+    emp     = factor(emp),
+    imm     = factor(imm),
+    disease = factor(disease),
+    liviDura = as.numeric(liviDura),
+    livareaperson = as.numeric(livareaperson)
+  )
+
+# --- 4. Run safety check ---
+current_cols <- ncol(df_temp)
+target_cols <- length(new_colnames)
+
+if(current_cols != target_cols) {
+  msg <- paste0(
+    "Column count mismatch!\n",
+    "------------------------------\n",
+    "Current number of columns: ", current_cols, "\n",
+    "Number of new variable names: ", target_cols, "\n",
+    "Difference: ", current_cols - target_cols, "\n",
+    "------------------------------\n",
+    "Check whether the select() statement is missing variables, or new_colnames is defined incorrectly."
+  )
+  stop(msg)
+} else {
+  message("Column count check passed (", current_cols, " vs ", target_cols, ").")
+  
+  # --- 5. Safe rename ---
+  df <- df_temp %>% setNames(new_colnames)
+  message("Data frame df created and renamed successfully.")
+  
+  # --- 6. Export CSV ---
+  write.csv(df, file.path(data_proc_dir, "data_cleaned_step1.csv"), row.names = FALSE, fileEncoding = "UTF-8")
+  message("CSV exported: data_cleaned_step1.csv")
+}
+
+# Report overall missingness
+cat("\nOverall missingness of the data frame:\n")
+print(skimr::skim(df))
+```
+
+
+# Data input
+```{r}
+# ==============================================================================
+# Step 1: Variable definition, selection and renaming
+# ==============================================================================
+library(dplyr)
+library(missForest)
+library(psych)
+library(tibble)
+
+# 1.1 Define original variable names (list kept as provided)
+e_orig_names <- c("e_city", "e_dist", "e_metro", "e_Bus", "e_wlkgrn", "e_wvgrn", "e_wlkblu", "e_wvblu",
+                  "e_facil", "e_Price", "e_work", "e_eduEL", "e_comCen", "e_medAc", "e_alcig", 
+                  "e_neiAl", "e_neiLow", "e_neiSoci", "e_themCo", "e_clim", "e_poll", "e_lighting",
+                  "e_privacy", "e_narrow", "e_PA", "e_sleep", "e_heaFood", "e_lifestyle", "e_safe")
+
+l_orig_names <- c('l_palgt', 'l_pamed', 'l_pahig', 'l_lgtdur', 'l_meddur', 'l_higdur', 
+                  'l_sitdur', 'l_leidur', "l_eathealth", 'l_eatout', 'l_smoking', 
+                  'l_drinking', "l_medictest", "l_adaptCop", "l_med_seek", "l_info_seek")
+
+mh_orig_names <- c('m_conc', 'm_wea', 'm_pos', 'm_app', 'm_neg', 'm_est', 'm_res', 'm_eat')
+ph_orig_names <- c("p_energy","p_pain","p_medD","p_genH","p_sleep","p_daily","p_work","p_mobility")
+sh_orig_names <- c("SS_1","SS_2","SS_3","SS_4","SS_5","SS_6","SS_7","SS_8")
+ses_vars <- c("Age", "Gender", "Edu", "Emp", "Imm", "CD", "DurRes", "LivArea")
+
+# 1.2 Select data
+all_vars_for_imputation <- c(e_orig_names, l_orig_names, mh_orig_names, ph_orig_names, sh_orig_names, ses_vars)
+
+# Check that the variables exist
+if(!all(all_vars_for_imputation %in% colnames(df))) {
+  missing_vars <- all_vars_for_imputation[!all_vars_for_imputation %in% colnames(df)]
+  stop(paste("Error: the data frame is missing the following columns:", paste(missing_vars, collapse=", ")))
+}
+
+df_analysis <- df[, all_vars_for_imputation]
+
+# 1.3 Rename (build old-to-new name mapping)
+# Generate new names
+e_item_names <- paste0("E", 1:length(e_orig_names))
+l_item_names <- paste0("L", 1:length(l_orig_names))
+mh_item_names <- paste0("M", 1:length(mh_orig_names))
+ph_item_names <- paste0("P", 1:length(ph_orig_names))
+sh_item_names <- paste0("S", 1:length(sh_orig_names))
+
+# Apply the renaming
+names(df_analysis)[match(e_orig_names, names(df_analysis))] <- e_item_names
+names(df_analysis)[match(l_orig_names, names(df_analysis))] <- l_item_names
+names(df_analysis)[match(mh_orig_names, names(df_analysis))] <- mh_item_names
+names(df_analysis)[match(ph_orig_names, names(df_analysis))] <- ph_item_names
+names(df_analysis)[match(sh_orig_names, names(df_analysis))] <- sh_item_names
+
+# Reorder (E, L, M, P, S, SES)
+core_node_names <- c(e_item_names, l_item_names, mh_item_names, ph_item_names, sh_item_names)
+all_vars_clean <- c(core_node_names, ses_vars)
+df_analysis <- df_analysis[, all_vars_clean]
+
+message("Variable selection and renaming complete.")
+
+# ==============================================================================
+# Step 2: Descriptive statistics of the raw data (pre-imputation)
+# ==============================================================================
+
+# Define a generic descriptive-statistics function
+get_descriptive_stats <- function(data, label="Stats") {
+  
+  data_num <- data %>% mutate(across(everything(), ~as.numeric(.)))
+  
+  # Use psych::describe for basic statistics
+  desc <- psych::describe(data_num, na.rm = TRUE) %>%
+    as.data.frame() %>%
+    rownames_to_column("Variable") %>%
+    dplyr::select(Variable, mean, sd, min, max, skew)
+  
+  missing_counts <- sapply(data, function(x) sum(is.na(x)))
+  var_types <- sapply(data, function(x) class(x)[1])
+  
+  # Merge
+  final_tab <- desc %>%
+    mutate(
+      Missing_N = missing_counts[Variable],
+      Missing_Pct = round(Missing_N / nrow(data) * 100, 2),
+      Type = var_types[Variable]
+    ) %>%
+    mutate(across(c(mean, sd, skew), ~round(., 3))) # keep 3 decimal places
+  
+  return(final_tab)
+}
+
+# 2.1 Ensure SES variables have the right format (for statistics)
+ses_factor_vars <- c("Gender", "Emp", "Imm", "CD", "Edu")
+df_raw_stat <- df_analysis
+for(col in ses_factor_vars) {
+  if(col %in% names(df_raw_stat)) df_raw_stat[[col]] <- as.factor(df_raw_stat[[col]])
+}
+
+# 2.2 Build and export the raw statistics table
+stats_raw <- get_descriptive_stats(df_raw_stat)
+
+# Export CSV
+write.csv(stats_raw, file.path(out_tables_dir, "Table_Descriptive_Raw_Data.csv"), row.names = FALSE)
+message("Raw-data statistics table exported: Table_Descriptive_Raw_Data.csv")
+
+# Print a preview (first few rows)
+print(head(stats_raw))
+
+# ==============================================================================
+# Step 3: missForest imputation
+# ==============================================================================
+
+# 3.1 Prepare data for imputation (categorical variables must be factors)
+df_for_imp <- df_analysis
+for(col in ses_factor_vars) {
+  df_for_imp[[col]] <- as.factor(df_for_imp[[col]])
+}
+
+message("\nStarting missForest imputation (ntree=500)... this may take a few minutes...")
+
+# 3.2 Run the imputation
+set.seed(123) # fix the random seed for reproducibility
+imp_result <- missForest(df_for_imp, 
+                         verbose = TRUE, 
+                         ntree = 500,     
+                         maxiter = 10)
+
+# Extract the imputed data
+df_clean <- imp_result$ximp
+
+# 3.3 Print the error report
+message("\nImputation complete. OOB error estimate:")
+print(imp_result$OOBerror)
+
+# ==============================================================================
+# Step 4: Pre/post-imputation comparison report
+# ==============================================================================
+
+# 4.1 Build the post-imputation statistics table
+stats_imp <- get_descriptive_stats(df_clean)
+
+# 4.2 Merge for comparison
+comparison_table <- stats_raw %>%
+  dplyr::select(Variable, Raw_Mean = mean, Raw_SD = sd, Raw_Skew = skew, Missing_N) %>%
+  left_join(
+    stats_imp %>% dplyr::select(Variable, Imp_Mean = mean, Imp_SD = sd, Imp_Skew = skew),
+    by = "Variable"
+  ) %>%
+  mutate(
+    Mean_Diff = round(Imp_Mean - Raw_Mean, 4),
+    SD_Diff = round(Imp_SD - Raw_SD, 4)
+  )
+
+# 4.3 Export the comparison table
+write.csv(comparison_table, file.path(out_tables_dir, "Table_Imputation_Check.csv"), row.names = FALSE)
+message("Pre/post-imputation comparison table exported: Table_Imputation_Check.csv")
+
+# 4.4 Check for large changes (warn if a mean shifts by more than 0.5)
+large_changes <- comparison_table %>% filter(abs(Mean_Diff) > 0.5)
+if(nrow(large_changes) > 0) {
+  message("Warning: the following variables show a large mean change after imputation, please check:")
+  print(large_changes$Variable)
+} else {
+  message("Check passed: no large mean shift between pre- and post-imputation.")
+}
+
+# ==============================================================================
+# Step 5: Final output (prepare for the next splitting step)
+# ==============================================================================
+
+for(col in colnames(df_clean)) {
+  if(is.factor(df_clean[[col]])) {
+    df_clean[[col]] <- as.numeric(as.character(df_clean[[col]]))
+    if(any(is.na(df_clean))) stop("Numeric conversion introduced NA")
+  }
+}
+
+message("\nReady. df_clean is now a complete numeric data frame with no missing values.")
+message("Continue with the Step 4 (data splitting) code.")
+```
+
+
+# advanced data process-df_clean
+```{r}
+# ==============================================================================
+# Step 4: Data forking (SES dummy-variable control, fixed)
+# ==============================================================================
+# Key correction:
+
+library(dplyr)
+library(tidyr)
+
+message("\n[Step 4] Running data forking (SES type-corrected version)...")
+
+# --- 1. Variable definitions ---
+
+all_items <- c(e_item_names, l_item_names, mh_item_names, ph_item_names, sh_item_names)
+ses_vars <- c("Age", "Gender", "Edu", "Emp", "Imm", "CD", "DurRes", "LivArea")
+
+# Group A: treated as continuous numeric (includes low-to-high ordinal variables such as Edu)
+ses_numeric_vars <- c("Age", "Edu", "DurRes", "LivArea") 
+
+# Group B: must be treated as categorical factors (nominal + binary variables)
+ses_factor_vars <- c("Gender", "Emp", "Imm", "CD")
+
+# --- 2. Prepare the SES data frame (for lm regression) ---
+
+ses_df_model <- df_clean %>%
+  dplyr::select(all_of(ses_vars)) %>%
+  mutate(across(all_of(ses_numeric_vars), ~as.numeric(as.character(.)))) %>%
+  mutate(across(all_of(ses_factor_vars), ~as.factor(.)))
+
+str(ses_df_model)
+
+# --- 3. Prepare the item data ---
+df_clean_num <- as.data.frame(df_clean) %>%
+  mutate(across(all_of(all_items), ~as.numeric(as.character(.))))
+
+
+# --- 4. Run the forking ---
+
+# === Branch A: df_raw_bggm (for BGGM) ===
+df_raw_bggm <- df_clean_num 
+message("df_raw_bggm ready.")
+
+
+# === Branch B: df_resid (for DAG) ===
+df_resid <- df_clean_num # copy the structure
+
+message("Computing residuals (dummies handled automatically)...")
+
+for(item in all_items) {
+  tmp_data <- cbind(Y_Target = df_clean_num[[item]], ses_df_model)
+  
+  fit <- lm(Y_Target ~ ., data = tmp_data, na.action = na.exclude)
+  
+  df_resid[[item]] <- residuals(fit)
+}
+
+message("df_resid ready (SES categorical variables correctly controlled).")
+
+
+# --- 5. Compute composite scores ---
+calc_score <- function(data, vars) {
+  if(length(vars) == 0) return(rep(NA, nrow(data)))
+  rowMeans(data[, vars, drop=FALSE], na.rm=TRUE)
+}
+
+df_scores <- df_resid %>%
+  mutate(
+    E_Score = calc_score(., e_item_names),
+    L_Score = calc_score(., l_item_names),
+    M_Score = calc_score(., mh_item_names),
+    P_Score = calc_score(., ph_item_names),
+    S_Score = calc_score(., sh_item_names),
+    H_Score_Total = rowMeans(cbind(M_Score, P_Score, S_Score), na.rm=TRUE)
+  ) %>%
+  mutate(across(c(E_Score, L_Score, M_Score, P_Score, S_Score, H_Score_Total), ~as.numeric(scale(.))))
+
+message("df_scores ready.")
+
+# ==============================================================================
+# Save
+# ==============================================================================
+continuous_items <- c() 
+
+save(df_clean_num, df_raw_bggm, df_resid, df_scores, 
+     ses_df_model,
+     continuous_items,
+     file = file.path(data_proc_dir, "Data_Forked_Step4.RData"))
+
+message("\nData updated and saved to Data_Forked_Step4.RData")
+
+
+```
+
+
+# Analysis 1: z-scoring, correlation and mediation test
+```{r}
+# ==============================================================================
+# Step 5A: Composite-score z-score descriptive statistics (select-conflict fix)
+# ==============================================================================
+library(dplyr)
+library(tidyr)
+library(openxlsx)
+library(ggplot2)
+library(patchwork)
+
+# Ensure df_scores exists
+if(!exists("df_scores")) stop("Error: df_scores does not exist. Run the Step 4 code first.")
+
+message("\n[Step 5A] Computing z-score descriptive statistics...")
+
+# 1. Define the score variables to analyse
+score_names <- c("E_Score", "L_Score", "M_Score", "P_Score", "S_Score", "H_Score_Total")
+
+# 2. Build the descriptive-statistics table
+desc_scores <- df_scores %>%
+  dplyr::select(all_of(score_names)) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(.x, na.rm = TRUE), 
+    SD = ~sd(.x, na.rm = TRUE),
+    Min = ~min(.x, na.rm = TRUE), 
+    Max = ~max(.x, na.rm = TRUE),
+    Skew = ~moments::skewness(.x, na.rm = TRUE)
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(everything(), names_to = c("Index", "Statistic"), 
+               names_pattern = "(.*)_(.*)", values_to = "Value") %>%
+  pivot_wider(names_from = Statistic, values_from = Value) %>%
+  mutate(Description = case_when(
+    Index == "E_Score" ~ "Environment (Residuals Z-score)",
+    Index == "L_Score" ~ "Lifestyle (Residuals Z-score)",
+    Index == "M_Score" ~ "Mental Health (Residuals Z-score)",
+    Index == "P_Score" ~ "Physical Health (Residuals Z-score)",
+    Index == "S_Score" ~ "Social Health (Residuals Z-score)",
+    Index == "H_Score_Total" ~ "Overall Health (Mean of M+P+S)",
+    TRUE ~ Index
+  )) %>%
+  dplyr::select(Index, Description, Mean, SD, Skew, Min, Max) %>%
+  mutate(across(where(is.numeric), ~round(., 3)))
+
+print(desc_scores)
+
+# 3. Export to Excel
+wb <- createWorkbook()
+addWorksheet(wb, "Scores_Z_Stats")
+writeData(wb, "Scores_Z_Stats", desc_scores)
+setColWidths(wb, "Scores_Z_Stats", cols = 1:7, widths = 15)
+saveWorkbook(wb, file.path(out_tables_dir, "Table_Scores_Descriptive.xlsx"), overwrite = TRUE)
+
+# 4. Draw the density-distribution plot (appendix)
+plot_data <- df_scores %>%
+  dplyr::select(all_of(score_names)) %>%
+  pivot_longer(everything(), names_to = "Dimension", values_to = "Score")
+
+p_dist <- ggplot(plot_data, aes(x = Score, fill = Dimension)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", color="gray40") +
+  facet_wrap(~Dimension, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribution of Standardized Residual Scores",
+       subtitle = "Data: SES-controlled Residuals",
+       x = "Z-score", y = "Density") +
+  theme(legend.position = "none")
+
+ggsave(file.path(out_fig_dir, "Appendix_Score_Distribution.png"), p_dist, width = 10, height = 6)
+message("Descriptive statistics done.")
+
+# ==============================================================================
+# Step 5B: Correlation analysis (Spearman) - select-error fix
+# ==============================================================================
+
+library(psych)
+library(corrplot)
+library(reshape2)
+library(dplyr) # make sure it is loaded
+
+message("\n[Step 5B] Running the correlation analysis...")
+
+# 1. Prepare data
+vars_corr <- c("E_Score", "L_Score", "H_Score_Total", "M_Score", "P_Score", "S_Score")
+
+# Fix: use dplyr::select explicitly to avoid an error
+df_corr <- df_scores %>% 
+  dplyr::select(all_of(vars_corr))
+
+# 2. Compute the Spearman correlation matrix
+cor_res <- psych::corr.test(df_corr, method = "spearman", adjust = "none")
+r_mat <- cor_res$r
+p_mat <- cor_res$p
+
+# 3. Draw the heatmap with significance stars (standard academic style)
+melt_r <- melt(r_mat)
+melt_p <- melt(p_mat)
+
+plot_df <- left_join(melt_r, melt_p, by = c("Var1", "Var2")) %>%
+  rename(Correlation = value.x, P_Value = value.y) %>%
+  mutate(
+    # Build the significance-star label
+    Stars = case_when(
+      P_Value < 0.001 ~ "***",
+      P_Value < 0.01  ~ "**",
+      P_Value < 0.05  ~ "*",
+      TRUE ~ ""
+    ),
+    Label = paste0(sprintf("%.2f", Correlation), "\n", Stars)
+  )
+
+# Plot
+p_corr <- ggplot(plot_df, aes(Var1, Var2, fill = Correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Label), size = 3) +
+  scale_fill_gradient2(low = "#6D9EC1", high = "#E46726", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), name="Spearman\nCorrelation") +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Correlation Matrix (SES-Adjusted Scores)", x = "", y = "")
+
+ggsave(file.path(out_fig_dir, "Figure_Correlation_Heatmap.pdf"), p_corr, width = 8, height = 7)
+message("Correlation heatmap saved: Figure_Correlation_Heatmap.pdf")
+
+
+# ==============================================================================
+# Step 5C: Mediation analysis (result extraction - select-error fix)
+# ==============================================================================
+library(lavaan)
+library(dplyr)
+
+message("\n[Step 5C] Running the mediation analysis (lavaan)...")
+
+# 1. Define the function
+run_mediation <- function(data, outcome_var, label) {
+  model <- paste0('
+    L_Score ~ a * E_Score
+    ', outcome_var, ' ~ b * L_Score + c_prime * E_Score
+    indirect := a * b
+    total    := c_prime + (a * b)
+    pm       := indirect / total
+  ')
+  
+  set.seed(1234) 
+  fit <- sem(model, data = data, se = "bootstrap", bootstrap = 5000)
+  return(list(fit = fit, label = label, outcome = outcome_var))
+}
+
+# 2. Run in batch and extract the results
+med_models <- list()
+outcomes <- list(
+  "Total_Health"    = "H_Score_Total",
+  "Mental_Health"   = "M_Score",
+  "Physical_Health" = "P_Score",
+  "Social_Health"   = "S_Score"
+)
+
+summary_list <- list()
+
+for(name in names(outcomes)) {
+  message(paste("   ⏳ Running model:", name))
+  
+  res <- run_mediation(df_scores, outcomes[[name]], name)
+  med_models[[name]] <- res 
+  
+  # --- Result extraction (error-fixed) ---
+  est <- parameterEstimates(res$fit, standardized = TRUE, boot.ci.type = "perc") %>%
+    as.data.frame() %>%
+    
+    dplyr::filter(label %in% c("a", "b", "c_prime", "indirect", "total", "pm")) %>%
+    
+    dplyr::mutate(
+      Path_Label = case_when(
+        label == "a" ~ "Environment -> Lifestyle",
+        label == "b" ~ paste0("Lifestyle -> ", name),
+        label == "c_prime" ~ paste0("Environment -> ", name, " (Direct)"),
+        label == "indirect" ~ paste0("Env -> Life -> ", name, " (Mediation)"),
+        label == "total" ~ paste0("Environment -> ", name, " (Total)"),
+        label == "pm" ~ "% Mediation",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    
+    dplyr::mutate(
+      CI_Str = paste0("[", sprintf("%.3f", ci.lower), ", ", sprintf("%.3f", ci.upper), "]")
+    ) %>%
+    
+    dplyr::select(
+      Model = rhs, # temporary placeholder
+      `Path / Effect` = label,
+      `Path Label` = Path_Label,
+      `Standardized Coefficient (β)` = std.all,
+      `Standard Error (SE)` = se,
+      `P` = pvalue,
+      `95% CI (Bootstrap)` = CI_Str
+    ) %>%
+    
+    dplyr::mutate(
+      Model = name,
+      `Standardized Coefficient (β)` = round(`Standardized Coefficient (β)`, 3),
+      `Standard Error (SE)` = round(`Standard Error (SE)`, 3),
+      `P` = sprintf("%.3f", `P`)
+    )
+  
+  summary_list[[name]] <- est
+}
+
+# 3. Combine and export
+final_med_tab <- bind_rows(summary_list)
+
+print(head(final_med_tab))
+
+write.csv(final_med_tab, file.path(out_tables_dir, "Table_Mediation_Results_Final_Beta.csv"), row.names = FALSE, fileEncoding = "UTF-8")
+message("Results exported: Table_Mediation_Results_Final_Beta.csv")
+
+```
+
+
+
+```{r}
+# ==============================================================================
+# Step 5D: Mediation-model visualisation (with residual arrows)
+# ==============================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(patchwork)
+
+message("\n[Step 5D] Building the mediation-model visualisation (with residual arrows)...")
+
+# Inspect the data structure of the Total_Health model
+message("Printout of the model results below:")
+print(summary_list[["Total_Health"]])
+
+# 1. Extract path coefficients from the results (unchanged)
+extract_path_coefficients <- function(model_name) {
+  model_data <- summary_list[[model_name]]
+  
+  paths <- data.frame(
+    from = c("E_Score", "L_Score", "E_Score"),
+    to = c("L_Score", model_name, model_name),
+    path_type = c("E→L", "L→Y", "E→Y"),
+    beta = c(
+      model_data %>% filter(`Path / Effect` == "a") %>% pull(`Standardized Coefficient (β)`),
+      model_data %>% filter(`Path / Effect` == "b") %>% pull(`Standardized Coefficient (β)`),
+      model_data %>% filter(`Path / Effect` == "c_prime") %>% pull(`Standardized Coefficient (β)`)
+    ),
+    p_value = c(
+      model_data %>% filter(`Path / Effect` == "a") %>% pull(P) %>% as.numeric(),
+      model_data %>% filter(`Path / Effect` == "b") %>% pull(P) %>% as.numeric(),
+      model_data %>% filter(`Path / Effect` == "c_prime") %>% pull(P) %>% as.numeric()
+    )
+  )
+  
+  paths$label <- sprintf("β = %.3f%s", 
+                         paths$beta,
+                         ifelse(paths$p_value < 0.001, "***",
+                                ifelse(paths$p_value < 0.01, "**",
+                                       ifelse(paths$p_value < 0.05, "*", ""))))
+  return(paths)
+}
+
+# 2. Function to draw the mediation-model diagram (auto-computes residuals)
+plot_mediation_model <- function(model_name, title_suffix = "") {
+  
+  model_data <- summary_list[[model_name]]
+  
+  # -------------------------------------------------------
+  # -------------------------------------------------------
+  paths <- extract_path_coefficients(model_name)
+  
+  # -------------------------------------------------------
+  # B. Auto-compute residual / unexplained variance
+  # -------------------------------------------------------
+  
+  # 1. Extract the coefficient values
+  beta_a <- paths %>% filter(path_type == "E→L") %>% pull(beta)
+  beta_b <- paths %>% filter(path_type == "L→Y") %>% pull(beta)
+  beta_c_prime <- paths %>% filter(path_type == "E→Y") %>% pull(beta)
+  
+  # 2. Compute the residual for the mediator (Lifestyle)
+  # Formula: Var(L) = beta_a^2 * Var(E) + Var(e_L) => 1 = beta_a^2 + e^2
+  r2_med <- beta_a^2
+  e_med <- sqrt(max(0, 1 - r2_med)) # max(0,...) guards against a negative from float error
+  
+  # 3. Compute the residual for the outcome (Health)
+  # Formula: Var(Y) = Explained_Var + Var(e_Y)
+  # Explained_Var = beta_c'^2 + beta_b^2 + 2 * beta_c' * beta_b * correlation(E,L)
+  r2_out <- beta_c_prime^2 + beta_b^2 + (2 * beta_c_prime * beta_b * beta_a)
+  e_out <- sqrt(max(0, 1 - r2_out))
+  
+  message(paste0("   [auto] ", model_name, 
+                 " | R2_Med=", round(r2_med,3), " (e=", round(e_med,2), ")",
+                 " | R2_Out=", round(r2_out,3), " (e=", round(e_out,2), ")"))
+
+  # -------------------------------------------------------
+  # C. Define residual-arrow positions
+  # -------------------------------------------------------
+  error_data <- data.frame(
+    name = c("Lifestyle", get_friendly_name(model_name)),
+    x_start = c(2.9, 2.9),  # arrow start
+    x_end   = c(2.4, 2.4),  # arrow end (touching the box edge)
+    y       = c(2, 1),      # same height as the nodes
+    label   = c(sprintf("%.2f", e_med), sprintf("%.2f", e_out))
+  )
+  
+  # -------------------------------------------------------
+  # D. Set node positions
+  # -------------------------------------------------------
+  nodes <- data.frame(
+    name = c("Environment", "Lifestyle", get_friendly_name(model_name)),
+    x = c(1, 2, 2),
+    y = c(2, 2, 1)
+  )
+  
+  edges <- data.frame(
+    from = c("Environment", "Lifestyle", "Environment"),
+    to = c("Lifestyle", get_friendly_name(model_name), get_friendly_name(model_name)),
+    beta = paths$beta,
+    path_type = paths$path_type,
+    label = paths$label
+  ) %>%
+    left_join(nodes, by = c("from" = "name")) %>%
+    rename(x_start = x, y_start = y) %>%
+    left_join(nodes, by = c("to" = "name")) %>%
+    rename(x_end = x, y_end = y)
+  
+  color_mapping <- c("E→L"="#87CEEB", "L→Y"="#FFB6C1", "E→Y"="#90EE90")
+  edges$linewidth <- abs(edges$beta) * 5
+  
+  # -------------------------------------------------------
+  # E. Plot (ggplot2)
+  # -------------------------------------------------------
+  p <- ggplot() +
+    # 1. Draw the node boxes
+    geom_rect(data = nodes, 
+              aes(xmin = x - 0.4, xmax = x + 0.4, 
+                  ymin = y - 0.15, ymax = y + 0.15),
+              fill = "white", color = "black", linewidth = 0.5) +
+    
+    # 2. Draw the node labels
+    geom_text(data = nodes, 
+              aes(x = x, y = y, label = name),
+              size = 4.5, vjust = 0.5, hjust = 0.5) +
+    
+    # --- Draw residual arrows (grey, right to left) ---
+    geom_segment(data = error_data,
+                 aes(x = x_start, y = y, xend = x_end, yend = y),
+                 color = "gray50", linewidth = 0.8,
+                 arrow = arrow(type = "closed", length = unit(0.15, "inches"))) +
+    
+    # --- Draw residual values (to the right of the arrow tail) ---
+    geom_text(data = error_data,
+              aes(x = x_start + 0.05, y = y, label = label),
+              size = 4, color = "gray40", hjust = 0, fontface = "italic") +
+    
+    # 3. Draw the main paths (with arrows)
+    geom_segment(data = edges,
+                 aes(x = x_start, y = y_start, xend = x_end, yend = y_end,
+                     color = path_type, linewidth = linewidth),
+                 arrow = arrow(type = "closed", length = unit(0.2, "inches")),
+                 show.legend = FALSE) +
+    
+    # 4. Main-path labels
+    geom_label(data = edges,
+               aes(x = (x_start + x_end) / 2, y = (y_start + y_end) / 2, label = label),
+               size = 3.5, fill = "white", alpha = 0.8, label.padding = unit(0.15, "lines")) +
+    
+    scale_color_manual(values = color_mapping) +
+    scale_linewidth_continuous(range = c(0.5, 3)) +
+    
+    xlim(0.5, 3.3) + 
+    ylim(0.5, 2.5) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray40"),
+      plot.caption = element_text(hjust = 0.5, size = 9, color = "gray60")
+    ) +
+    
+    labs(title = paste("Mediation Model:", title_suffix),
+         subtitle = "Standardized Path Coefficients & Calc. Residuals",
+         caption = "Residuals calculated from standardized betas")
+  
+  return(p)
+}
+
+get_friendly_name <- function(model_name) {
+  case_when(
+    model_name == "Total_Health" ~ "Total Health",
+    model_name == "Mental_Health" ~ "Mental Health",
+    model_name == "Physical_Health" ~ "Physical Health",
+    model_name == "Social_Health" ~ "Social Health",
+    TRUE ~ model_name
+  )
+}
+
+# 3. Loop over models: plot and save (unchanged)
+model_titles <- c(
+  "Total_Health" = "Total Health (H_Score_Total)",
+  "Mental_Health" = "Mental Health (M_Score)",
+  "Physical_Health" = "Physical Health (P_Score)",
+  "Social_Health" = "Social Health (S_Score)"
+)
+
+mediation_plots <- list()
+
+for (model_name in names(model_titles)) {
+  message(paste("   📊 Creating plot for:", model_name))
+  p <- plot_mediation_model(model_name, model_titles[[model_name]])
+  mediation_plots[[model_name]] <- p
+  ggsave(paste0("Mediation_Model_", model_name, ".pdf"), p, width = 9, height = 6, dpi = 300) # a bit wider to fit the right-side arrows
+}
+
+# 4. Combined figure (unchanged)
+combined_title <- "Mediation Models: Environment → Lifestyle → Health Outcomes"
+combined_plot <- (mediation_plots[["Total_Health"]] + mediation_plots[["Mental_Health"]]) / 
+  (mediation_plots[["Physical_Health"]] + mediation_plots[["Social_Health"]]) +
+  plot_annotation(title = combined_title, 
+                  subtitle = "Gray arrows indicate residual path coefficients (unexplained variance)",
+                  theme = theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16)))
+
+ggsave("Combined_Mediation_Models.pdf", combined_plot, width = 16, height = 10, dpi = 300)
+
+message("\nVisualisation complete. Residual arrows (e) added in the reference style.")
+```
+
+
+
+# Analysis 2: BGGM / SES controlled and uncontrolled - 0105
+```{r}
+# ==============================================================================
+# Step 6: BGGM network analysis (sign-in-plot fix)
+# ==============================================================================
+library(BGGM)
+library(qgraph)
+library(ggplot2)
+library(dplyr)
+library(ggridges)
+library(networktools)
+library(gridExtra)
+
+# --- 1. Basic configuration ---
+out_dir <- out_fig_dir  # write to this project's Figures directory
+
+ITER_NUM <- 5000 
+
+e_names <- e_item_names
+l_names <- l_item_names
+multi_models <- list(
+  "Mental_Health"   = mh_item_names, 
+  "Physical_Health" = ph_item_names, 
+  "Social_Health"   = sh_item_names
+)
+
+# --- Visual parameters ---
+custom_node_colors <- c("Environment"="#AEC7E8", "Lifestyle"="#98DF8A", 
+                        "Mental_Health"="#D8BFD8", "Physical_Health"="#FFBB78", "Social_Health"="#FFB6C1")
+bridge_highlight_color <- "#FFD700" 
+vsize_fixed <- 4
+label_size_fixed <- 0.8  
+vBorder_color <- rep("gray30", 100); vBorder_width <- rep(1, 100)
+
+if(!exists("df_raw_bggm") || !exists("df_resid")) stop("Error: data sources not found.")
+
+message("Configuration loaded. Fixed the loss of sign in pcor_adj.")
+
+
+
+# ==============================================================================
+# Core analysis function (force signed weights)
+# ==============================================================================
+run_bggm_full_metrics <- function(data_raw_full, data_resid_full, node_names, groups_list, model_label, out_dir, n_iter = ITER_NUM) {
+  
+  # --- 0. Data integrity check ---
+  if(!all(node_names %in% colnames(data_raw_full))) {
+    missing <- node_names[!node_names %in% colnames(data_raw_full)]
+    stop(paste("Error: the following variables are missing from the data:", paste(missing, collapse=", ")))
+  }
+  
+  set.seed(42)
+  
+  # --- 1. Prepare the data matrices ---
+  Y_raw_mat <- as.matrix(data_raw_full[, node_names])
+  Y_resid_mat <- as.matrix(data_resid_full[, node_names])
+  mode(Y_raw_mat) <- "numeric"
+  mode(Y_resid_mat) <- "numeric"
+  
+  # --- 2. BGGM estimation and selection ---
+  fit_raw <- BGGM::estimate(Y = Y_raw_mat, iter = n_iter, progress = FALSE)
+  fit_ctrl <- BGGM::estimate(Y = Y_resid_mat, iter = n_iter, progress = FALSE)
+  
+  sel_raw  <- BGGM::select(fit_raw,  cred = 0.99)
+  sel_ctrl <- BGGM::select(fit_ctrl, cred = 0.99)
+  
+  # --- Robustly extract the 0/1 significance matrix ---
+  get_sig_matrix <- function(bg_obj, label) {
+    obj_names <- names(bg_obj)
+    # Strategy 1: look for Adj_XX
+    adj_candidate <- obj_names[grepl("^Adj_", obj_names)]
+    if(length(adj_candidate) > 0) return(as.matrix(bg_obj[[adj_candidate[1]]]))
+    # Strategy 2: look for Adj_cred
+    if("Adj_cred" %in% obj_names) return(as.matrix(bg_obj$Adj_cred))
+    # Strategy 3: look for pcor_adj
+    if("pcor_adj" %in% obj_names) return(as.matrix(bg_obj$pcor_adj))
+    
+    message(paste("   ❌ [Debug] Available names in object:", paste(obj_names, collapse=", ")))
+    return(NULL)
+  }
+  
+  mat_sig_raw  <- get_sig_matrix(sel_raw, "Raw")
+  mat_sig_ctrl <- get_sig_matrix(sel_ctrl, "Control")
+  
+  if(is.null(mat_sig_raw) || is.null(mat_sig_ctrl)) {
+    stop("BGGM Error: could not locate the adjacency matrix automatically.")
+  }
+  
+  pcor_mat_raw <- fit_raw$pcor_mat
+  pcor_mat_ctrl <- fit_ctrl$pcor_mat
+  
+  message(paste("   🔍 [Check] Raw Pcor Range:", paste(round(range(pcor_mat_raw),3), collapse=" to ")))
+  
+  adj_raw  <- as.matrix(pcor_mat_raw) * as.matrix(mat_sig_raw)
+  adj_ctrl <- as.matrix(pcor_mat_ctrl) * as.matrix(mat_sig_ctrl)
+  
+  colnames(adj_raw) <- rownames(adj_raw) <- node_names
+  colnames(adj_ctrl) <- rownames(adj_ctrl) <- node_names
+  
+  write.csv(adj_ctrl, file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv")))
+  
+  # Compute correlations
+  vals_raw <- adj_raw[upper.tri(adj_raw)]
+  vals_ctrl <- adj_ctrl[upper.tri(adj_ctrl)]
+  
+  if(sd(vals_raw) == 0 || sd(vals_ctrl) == 0) {
+    cor_r <- 0 
+  } else {
+    cor_r <- cor(vals_raw, vals_ctrl)
+  }
+  
+  # --- 3. Prepare the community vector needed for the metrics ---
+  node_count <- length(node_names)
+  community_chr <- character(node_count)
+  
+  for (g_name in names(groups_list)) { 
+    g_indices <- groups_list[[g_name]]
+    valid_indices <- g_indices[g_indices <= node_count]
+    if(length(valid_indices) > 0) {
+      community_chr[valid_indices] <- g_name
+    }
+  }
+  
+  # --- 4. Compute bridge and node metrics ---
+  br_res <- tryCatch({
+    networktools::bridge(adj_ctrl, communities = community_chr, useCommunities = "all", directed = FALSE, nodes = node_names)
+  }, error = function(e) {
+    message("   ⚠️ Bridge metrics calculation failed: ", e$message)
+    return(NULL)
+  })
+  
+  if(!is.null(br_res)){
+    val_bridge_ei <- br_res$`Bridge Expected Influence (1-step)` 
+    val_bridge_str <- br_res$`Bridge Strength`                    
+  } else {
+    val_bridge_ei <- rep(0, node_count)
+    val_bridge_str <- rep(0, node_count)
+  }
+  
+  # Node Metrics
+  val_node_ei <- colSums(adj_ctrl)       
+  val_node_str <- colSums(abs(adj_ctrl)) 
+  
+  # --- 5. Highlight rule ---
+  pos_candidates <- val_bridge_ei
+  pos_candidates[pos_candidates <= 0] <- -Inf 
+  
+  if(all(pos_candidates == -Inf)){
+    threshold <- Inf 
+  } else {
+    threshold <- quantile(pos_candidates[pos_candidates > -Inf], 0.8, na.rm=TRUE) 
+  }
+  
+  top_nodes_idx <- which(val_bridge_ei >= threshold & val_bridge_ei > 0)
+  
+  node_colors_default <- unname(custom_node_colors[community_chr])
+  node_colors_highlight <- node_colors_default
+  if(length(top_nodes_idx) > 0) node_colors_highlight[top_nodes_idx] <- bridge_highlight_color
+  
+  # --- 6. Plotting function ---
+  plot_lollipop <- function(vals, title, subtitle) {
+    df <- data.frame(Node = node_names, Val = vals, Community = community_chr) %>% arrange(Val)
+    df$Node <- factor(df$Node, levels = df$Node) 
+    
+    ggplot(df, aes(x=Node, y=Val, color=Community)) +
+      geom_segment(aes(xend=Node, yend=0), color="grey") +
+      geom_point(size=2.5) + coord_flip() +
+      scale_color_manual(values = custom_node_colors) +
+      labs(title=title, subtitle=subtitle, x="", y="Value") +
+      theme_minimal() + 
+      theme(legend.position="none", plot.title = element_text(size=10, face="bold"))
+  }
+  
+  p1 <- plot_lollipop(val_bridge_ei, "Bridge Expected Influence", "Signed Sum")
+  p2 <- plot_lollipop(val_bridge_str, "Bridge Strength", "Absolute Sum")
+  p3 <- plot_lollipop(val_node_ei, "Node Expected Influence", "Signed Sum")
+  p4 <- plot_lollipop(val_node_str, "Node Strength", "Absolute Sum")
+  
+  # --- 7. Return ---
+  # Pre-compute the layout
+  L_avg <- qgraph(adj_ctrl, layout="spring", DoNotPlot=TRUE)$layout
+  
+  return(list(
+    adj_raw = adj_raw, adj_ctrl = adj_ctrl, cor_r = cor_r,
+    p_matrix = list(p1, p2, p3, p4), 
+    node_colors_default = node_colors_default,
+    node_colors_highlight = node_colors_highlight,
+    layout_spring = L_avg
+  ))
+}
+
+
+# ==============================================================================
+# Run the main loop
+# ==============================================================================
+message("\n🚀 STARTING BGGM ANALYSIS LOOP...")
+
+pdf(file.path(out_dir, "Step6_BGGM_Results_FullMetrics.pdf"), width = 18, height = 12)
+
+for(model_label in names(multi_models)){
+  h_nodes <- multi_models[[model_label]]
+  current_nodes <- c(e_names, l_names, h_nodes)
+  n_e <- length(e_names); n_l <- length(l_names); n_h <- length(h_nodes)
+  groups_list <- list("Environment" = 1:n_e, "Lifestyle" = (n_e+1):(n_e+n_l))
+  groups_list[[model_label]] <- (n_e+n_l+1):(n_e+n_l+n_h)
+  
+  message(paste("\n>>> Processing:", model_label))
+  
+  tryCatch({
+    res <- run_bggm_full_metrics(df_raw_bggm, df_resid, current_nodes, groups_list, model_label, out_dir, ITER_NUM)
+    
+    layout(matrix(c(1, 2), 1, 2, byrow = TRUE))
+
+    qgraph(res$adj_raw, layout=res$layout_spring, groups=groups_list, color=res$node_colors_default,
+           title=paste0(model_label, " - Raw"),
+           labels=current_nodes, label.cex=label_size_fixed, vsize=vsize_fixed, border.color=vBorder_color, 
+           posCol="#008000", negCol="#ff0000", 
+           fade = FALSE, # force colours to show, do not fade with strength
+           legend=FALSE)
+    
+    
+    qgraph(res$adj_ctrl, layout=res$layout_spring, groups=groups_list, color=res$node_colors_default,
+           title=paste0(model_label, " - Controlled\nr = "),
+           labels=current_nodes, label.cex=label_size_fixed, vsize=vsize_fixed, border.color=vBorder_color, 
+           posCol="#008000", negCol="#ff0000", 
+           fade = FALSE, # force colours to show, do not fade with strength
+           legend=FALSE)
+    
+    # Page 2: Highlighted Network
+    layout(1)
+    qgraph(res$adj_ctrl, layout=res$layout_spring, groups=groups_list, color=res$node_colors_highlight,
+           title=paste(model_label, "- Final Robust Network (Highlighted)"), labels=current_nodes,
+           label.cex=label_size_fixed, vsize=vsize_fixed, border.color=vBorder_color, 
+           posCol="#008000", negCol="#ff0000", legend=TRUE, legend.cex=0.5)
+    
+    # Page 3: Metrics
+    grid.arrange(res$p_matrix[[1]], res$p_matrix[[2]], res$p_matrix[[3]], res$p_matrix[[4]], ncol=2,
+                 top = paste("Metrics Comparison (EI vs Strength) -", model_label))
+    
+    message(paste("    ✅ Completed:", model_label))
+  }, error = function(e){
+    message(paste("    ❌ Failed:", model_label)); message(e)
+  })
+}
+dev.off()
+message("\n🎉 Done! Polarity and weights are now correctly visualized.")
+```
+
+# Bootnet stability analysis for all models
+```{r}
+# ==============================================================================
+# III. PHASE 3: STABILITY ANALYSIS (bootnet) - Updated for SES-Adjusted Residuals
+# ==============================================================================
+# Notes:
+# 1. Use EBICglasso as a fast proxy for BGGM in the stability test.
+# 2. Important: use df_resid (from Step 4), because SES effects have already been removed.
+
+library(bootnet)
+library(dplyr)
+library(ggplot2)
+
+message("\n🚀 STARTING PHASE 3: STABILITY ANALYSIS FOR ALL MODELS")
+
+# 1. Basic configuration and checks
+if(!exists("out_dir")) out_dir <- out_fig_dir
+if(!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# Key check: ensure df_resid exists
+if(!exists("df_resid")) {
+  stop("Error: 'df_resid' not found. Run the Step 4 code first to generate the deconfounded residual data.")
+}
+
+# Loop: Mental -> Physical -> Social
+for(model_label in names(multi_models)){
+  
+  message(paste("\n----------------------------------------------------"))
+  message(paste(">>> [Phase 3] Testing Stability for:", model_label))
+  message(paste("----------------------------------------------------"))
+  
+  # 2. Prepare data
+  nodes_extra <- multi_models[[model_label]]
+  target_vars <- c(e_names, l_names, nodes_extra)
+  
+  data_for_boot <- df_resid %>% dplyr::select(all_of(target_vars))
+  
+  # 3. Define bridge communities dynamically
+  n_e <- length(e_names)
+  n_l <- length(l_names)
+  n_h <- length(nodes_extra)
+  
+  communities <- list(
+    "Environment" = 1:n_e,
+    "Lifestyle"   = (n_e + 1):(n_e + n_l),
+    "Health"      = (n_e + n_l + 1):(n_e + n_l + n_h)
+  )
+  
+  # 4. Run bootnet
+  # 4.1 Estimate the base network (EBICglasso)
+  message(paste("   👉 Estimating base network (EBICglasso on Residuals)..."))
+  
+  network_estimate <- estimateNetwork(
+    data_for_boot, 
+    default = "EBICglasso", 
+    corMethod = "cor", 
+    tuning = 0.5,
+    verbose = FALSE
+  )
+  
+  # 4.2 Run case-dropping bootstrap
+  message(paste("   👉 Running 1000 bootstraps (this takes time)..."))
+  # Fix the bootnet seed
+  set.seed(777)
+  
+  boot_res <- bootnet(
+    network_estimate, 
+    boots = 1000,              # 1000 recommended for a full run
+    type = "case",             # case-dropping method
+    statistics = c("bridgeExpectedInfluence"), # test Bridge EI only
+    communities = communities, # pass the dynamic communities
+    nCores = 8,                # multi-core speedup (adjust to your machine)
+    verbose = FALSE
+  )
+  
+  # 5. Compute the CS-coefficient
+  # cor = 0.7 is the standard threshold (CS > 0.25 acceptable, > 0.5 excellent)
+  cor_stab <- corStability(boot_res, cor = 0.7)
+  cs_value <- cor_stab[1] # extract the CS value for Bridge EI
+  
+  message(paste("   📊 CS-coefficient (Bridge EI):", round(cs_value, 3)))
+  
+  # 5. Plot and save
+  pdf_filename <- file.path(out_dir, paste0("Stability_CS_", model_label, ".pdf"))
+  pdf(pdf_filename, width = 10, height = 6)
+  
+  p <- plot(boot_res, statistics = "bridgeExpectedInfluence") + 
+    ggplot2::labs(title = paste("Stability of Bridge EI -", model_label),
+         subtitle = paste("CS-coefficient (cor=0.7) =", round(cs_value, 3)),
+         caption = "Criteria: CS > 0.25 is acceptable; CS > 0.5 is stable.") + 
+    ggplot2::theme_classic() +
+    ggplot2::theme(plot.title = element_text(hjust = 0.5, face="bold"),
+          plot.subtitle = element_text(hjust = 0.5))
+  
+  print(p)
+  dev.off()
+  
+  message(paste("   ✅ Saved plot to:", basename(pdf_filename)))
+}
+
+message("\n🎉 PHASE 3 ALL COMPLETED! Check your output folder.")
+```
+
+
+
+
+# Analysis 3: DAG three steps
+```{r}
+
+library(bnlearn)
+library(bootnet)
+library(dplyr)
+library(ggplot2)
+
+# ==============================================================================
+# IV. PHASE 2: DAG ANALYSIS (Based on SES-Adjusted Residuals)
+# ==============================================================================
+message("\n🚀 STARTING PHASE 2: DAG ANALYSIS")
+
+# Ensure output directories exist
+if(!exists("out_dir_dag")) out_dir_dag <- file.path(out_dir, "DAG_Analysis")
+if(!dir.exists(out_dir_dag)) dir.create(out_dir_dag, recursive = TRUE)
+
+# ==============================================================================
+# STEP 1: Core computation and raw-object save (computation & save raw RDS)
+# ==============================================================================
+
+message("\n🚀 [Step 1] STARTING HEAVY COMPUTATION (Bootstrap on Residuals)")
+message(paste("📂 Output Directory:", out_dir_dag))
+
+# Check that df_resid exists
+if(!exists("df_resid")) stop("Error: df_resid does not exist. Run Step 4 first.")
+
+target_models <- names(multi_models) 
+
+for(model_label in target_models){
+  
+  message(paste(">>> [Computing] Running Bootstrap for:", model_label))
+  
+  # --- A. Data preparation (using the deconfounded residuals) ---
+  nodes_extra <- multi_models[[model_label]]
+  node_names_model <- c(e_names, l_names, nodes_extra)
+  
+  dat_resid_sub <- df_resid %>% 
+    dplyr::select(all_of(node_names_model))
+  
+  # --- B. Blacklist setup (tiered blacklist) ---
+  # Forbid: Lifestyle -> Environment
+  # Forbid: Health    -> Environment
+  
+  non_env_nodes <- c(l_names, nodes_extra)
+  
+  black_list <- expand.grid(from = non_env_nodes, to = e_names, stringsAsFactors = FALSE)
+  
+  # --- C. Core computation (bootstrapping) ---
+  tryCatch({
+  # Fix the DAG bootstrap seed
+    set.seed(999)
+    
+    start_time <- Sys.time()
+    
+    # Core computation: R=500 (raise to 500 or 1000 for stable results), alpha=0.01
+    # Use the PC-stable algorithm
+    str_fit <- boot.strength(
+      data = dat_resid_sub, 
+      R = 500,    # <--- recommendation: use 500 or 1000 for publication
+      algorithm = "pc.stable",
+      algorithm.args = list(
+        blacklist = black_list, 
+        alpha = 0.01  # significance level
+      )
+    ) 
+    
+    end_time <- Sys.time()
+    duration <- round(difftime(end_time, start_time, units = "secs"), 1)
+    message(paste("   ⏱️ Computation finished in", duration, "seconds."))
+    
+    # --- D. Save the raw object (.rds) ---
+    rds_filename <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+    saveRDS(str_fit, file = rds_filename)
+    
+    message(paste("   💾 Saved Raw RDS:", rds_filename))
+    
+  }, error = function(e){
+    message(paste("   ❌ Error in calculation for", model_label, ":", e$message))
+  })
+}
+
+message("\n✅ [Step 1] ALL COMPUTATIONS DONE. Raw data saved to .rds files.")
+message("👉 Next: Run 'Step 2' (Sensitivity) and 'Step 3' (Plotting).")
+
+```
+
+
+
+```{r}
+library(bnlearn)
+library(dplyr)
+library(ggplot2) # ggplot2 is used for the line plot
+
+library(bnlearn)
+library(dplyr)
+library(ggplot2) 
+
+# ==============================================================================
+# STEP 2: Sensitivity analysis (with CSV export and elbow plot) - extended
+# ==============================================================================
+
+message("\n📊 [Step 2] STARTING SENSITIVITY CHECK & PLOTTING")
+
+# Define the test range
+test_thresholds <- sort(unique(c(seq(0.70, 0.95, by = 0.05), 0.98)))
+
+# Define the thresholds for which a CSV should be exported
+export_targets <- c(0.70, 0.75, 0.80, 0.85, 0.90, 0.95)
+
+target_models <- names(multi_models)
+
+for(model_label in target_models){
+  
+  # --- 1. Read the RDS file saved in Step 1 ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  
+  if(!file.exists(rds_file)){
+    message(paste("⚠️ Skipped:", model_label, "(RDS file not found)"))
+    next
+  }
+  
+  message(paste("\n>>> Analyzing Model:", model_label))
+  str_fit <- readRDS(rds_file)
+  
+  # --- 2. Loop over thresholds and count edges ---
+  results_list <- list()
+  
+  for(th in test_thresholds){
+    # Compute the averaged network
+    avg <- averaged.network(str_fit, threshold = th)
+    # Count the edges
+    final_arcs <- as.data.frame(avg$arcs)
+    num_edges <- nrow(final_arcs)
+    
+    # ---------------------------------------------------------
+    # If this is a target threshold (85, 90, 95), save a CSV immediately
+    # ---------------------------------------------------------
+    if(th %in% export_targets){
+      # example filename: DAG_Arrows_0.9_Mental_Health.csv
+      arrow_file <- file.path(out_dir_dag, paste0("DAG_Arrows_", th, "_", model_label, ".csv"))
+      
+      if(num_edges > 0){
+        write.csv(final_arcs, arrow_file, row.names = FALSE)
+        message(paste0("      💾 [Export] Saved arrows for threshold ", th, " (Edges: ", num_edges, ")"))
+      } else {
+        message(paste0("      ⚠️ [Export] Threshold ", th, " has 0 edges, skip saving."))
+      }
+    }
+    # ---------------------------------------------------------
+    
+    # Auto-generate a description (for reference only)
+    desc <- ""
+    if(num_edges > 100) desc <- "Very Dense"
+    else if(num_edges > 50) desc <- "Dense"
+    else if(num_edges >= 20) desc <- "Moderate (Interpretable)"
+    else if(num_edges > 5) desc <- "Sparse (Skeleton)"
+    else desc <- "Very Sparse"
+    
+    # Store in the list
+    results_list[[as.character(th)]] <- data.frame(
+      Threshold = th,
+      Edge_Count = num_edges,
+      Description = desc,
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  # Combine into a data frame
+  df_results <- do.call(rbind, results_list)
+  
+  # --- 3. Export the summary CSV (for the supplement) ---
+  csv_name <- file.path(out_dir_dag, paste0("Sensitivity_Table_", model_label, ".csv"))
+  write.csv(df_results, csv_name, row.names = FALSE)
+  message(paste("   💾 Summary Table Saved:", csv_name))
+  
+  # --- 4. Draw the line plot (scree plot) ---
+  p <- ggplot(df_results, aes(x = Threshold, y = Edge_Count)) +
+    geom_line(color = "steelblue", size = 1.2) +
+    geom_point(color = "steelblue", size = 3) +
+    geom_text(aes(label = Edge_Count), vjust = -0.8, size = 3.5) +
+    # Mark the 0.85 and 0.90 positions
+    geom_vline(xintercept = c(0.85, 0.90, 0.95), linetype = "dashed", color = "gray50") +
+    scale_x_continuous(breaks = test_thresholds) +
+    theme_minimal() +
+    labs(
+      title = paste("Sensitivity Analysis:", model_label),
+      subtitle = "Number of Edges vs. Inclusion Threshold",
+      x = "Threshold (Bootstrap Confidence)",
+      y = "Number of Edges (Complexity)"
+    ) +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      axis.text = element_text(size = 11)
+    )
+  
+  plot_name <- file.path(out_dir_dag, paste0("Sensitivity_Plot_", model_label, ".pdf"))
+  ggsave(plot_name, plot = p, width = 8, height = 6)
+  message(paste("   📈 Plot Saved:", plot_name))
+}
+
+message("\n✅ [Step 2] Analysis Done.")
+message("👉 Checked Output folder for new 'DAG_Arrows_0.XX_....csv' files.")
+```
+
+
+# DAG_Layered plot
+library(qgraph)
+library(dplyr)
+library(bnlearn)
+
+# ==============================================================================
+# STEP 3: Final plotting (debug-fixed - resolves node-name mismatch)
+# ==============================================================================
+
+FINAL_THRESHOLD <- 0.70
+
+message(paste("\n🎨 [Step 3 Debug] STARTING PLOTTING | Threshold:", FINAL_THRESHOLD))
+
+target_models <- names(multi_models) 
+
+for(model_label in target_models){
+  
+  # --- 1. Read the raw data ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  
+  if(!file.exists(rds_file)){
+    message(paste("⚠️ Skipped:", model_label, "(RDS not found)"))
+    next
+  }
+  
+  str_fit <- readRDS(rds_file)
+  
+  # --- 2. Filter edges ---
+  avg_dag <- averaged.network(str_fit, threshold = FINAL_THRESHOLD)
+  final_arcs <- as.data.frame(avg_dag$arcs)
+  
+  all_nodes <- nodes(avg_dag) 
+  n_total <- length(all_nodes)
+  
+  # --- Diagnostic report ---
+  message(paste0("\n>>> [Diagnostic] Model: ", model_label))
+  message(paste0("    1. Theoretical Edges (from Table): ", nrow(final_arcs)))
+  message(paste0("    2. Total Nodes found: ", n_total))
+  if(nrow(final_arcs) > 0){
+    message(paste0("    3. First edge sample: ", final_arcs[1,1], " -> ", final_arcs[1,2]))
+    message(paste0("    4. First node name:   ", all_nodes[1]))
+  }
+  
+  # --- 3. Prepare the plotting matrices ---
+  # A. Adjacency matrix
+  dag_adj <- matrix(0, nrow = n_total, ncol = n_total)
+  rownames(dag_adj) <- colnames(dag_adj) <- all_nodes
+  
+  # B. Edge-colour matrix
+  edge_col_mat <- matrix("black", nrow = n_total, ncol = n_total)
+  rownames(edge_col_mat) <- colnames(edge_col_mat) <- all_nodes 
+  
+  get_group_id_safe <- function(node_name_clean){
+    
+    
+    
+    e_names_safe <- make.names(e_names)
+    l_names_safe <- make.names(l_names)
+    
+    if(node_name_clean %in% e_names || node_name_clean %in% e_names_safe) return(1)
+    if(node_name_clean %in% l_names || node_name_clean %in% l_names_safe) return(2)
+    return(3) # everything else is Health
+  }
+  
+  # --- 4. Fill the matrices ---
+  matches_count <- 0
+  if(nrow(final_arcs) > 0){
+    for(i in 1:nrow(final_arcs)){
+      f <- final_arcs[i, "from"]
+      t <- final_arcs[i, "to"]
+      
+      if(f %in% all_nodes && t %in% all_nodes){
+        dag_adj[f, t] <- 1
+        matches_count <- matches_count + 1
+        
+        g_src <- get_group_id_safe(f)
+        g_dst <- get_group_id_safe(t)
+        
+        if(g_src == g_dst) edge_col_mat[f, t] <- "gray80"      
+        else if(g_src < g_dst) edge_col_mat[f, t] <- "forestgreen" 
+        else edge_col_mat[f, t] <- "firebrick2"  
+      }
+    }
+  }
+  message(paste0("    5. Edges successfully plotted: ", matches_count, " / ", nrow(final_arcs)))
+
+  # --- 5. Build the layered layout (adapted to the new names) ---
+  Layout_Matrix <- matrix(0, nrow = n_total, ncol = 2)
+  
+  group_ids <- sapply(all_nodes, get_group_id_safe)
+  
+  idx_e <- which(group_ids == 1)
+  idx_l <- which(group_ids == 2)
+  idx_h <- which(group_ids == 3)
+  
+  # E (Top)
+  if(length(idx_e) > 0){
+    Layout_Matrix[idx_e, 1] <- seq(-2.4, 2.4, length.out = length(idx_e))
+    Layout_Matrix[idx_e, 2] <- 1.0
+  }
+  # L (Mid)
+  if(length(idx_l) > 0){
+    Layout_Matrix[idx_l, 1] <- seq(-1.6, 1.6, length.out = length(idx_l))
+    Layout_Matrix[idx_l, 2] <- 0.0
+  }
+  # H (Bot)
+  if(length(idx_h) > 0){
+    Layout_Matrix[idx_h, 1] <- seq(-0.8, 0.8, length.out = length(idx_h))
+    Layout_Matrix[idx_h, 2] <- -1.0
+  }
+
+  # --- 5. Plot ---
+  # Community list
+  groups_model <- list("Environment" = 1:n_e, "Lifestyle" = (n_e + 1):(n_e + n_l))
+  groups_model[[model_label]] <- (n_e + n_l + 1):(n_e + n_l + n_h)
+  current_colors <- custom_node_colors[names(groups_model)]
+
+  tryCatch({
+    pdf(file.path(out_dir_dag, paste0("DAG_Layered_", model_label, ".pdf")), width = 32, height = 16)
+    
+    qgraph(dag_adj, 
+           layout = Layout_Matrix, # not "spring"; pass the coordinate matrix directly
+           
+           rescale = TRUE,         # auto-rescale to fit the canvas
+           
+           # === Style ===
+           edge.color = edge_col_mat, 
+           groups = groups_model,           
+           color = current_colors, 
+           labels = colnames(dag_adj), 
+           vsize = 2.5,
+           label.cex = 0.8,
+           border.color = "gray30",
+           
+           nodeNames = NULL,
+           legend = TRUE, 
+           legend.cex = 0.5,
+           
+           directed = TRUE,
+           mode = "direct",
+           esize = 1.2,
+           asize = 2.0,
+           
+           curve = 0.3,     # 0 = straight; larger = more curved
+           curveAll = TRUE, # curve all edges to avoid passing through middle nodes
+           
+           title = paste("DAG Structure (Layered):", model_label),
+           title.cex = 1.6,
+           mar = c(9, 5, 5, 3)
+    )
+    
+    mtext(param_label_1, side = 1, line = 3, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    mtext(param_label_2, side = 1, line = 4.5, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    
+    dev.off()
+    message(paste("   ✅ Layered Plot Saved:", model_label))
+    
+  }, error = function(e){
+    message(paste("   ❌ Error:", e$message))
+    if(dev.cur() > 1) dev.off()
+  })
+
+}
+
+
+# layered DAG plot with layered layout
+
+library(qgraph)
+library(dplyr)
+library(bnlearn)
+
+# ==============================================================================
+# STEP 3: Final plotting (vertical spacing x3)
+# ==============================================================================
+
+FINAL_THRESHOLD <- 0.70 # or 0.90, your choice
+
+# Define the parameter labels
+param_label_1 <- paste0("Threshold: ", FINAL_THRESHOLD, " | Bootstrap: 100")
+param_label_2 <- "Green: Forward | Red: Feedback | Gray: Within-Group"
+
+message(paste("\n🎨 [Step 3] STARTING PLOTTING | Threshold:", FINAL_THRESHOLD))
+
+target_models <- names(multi_models) 
+
+for(model_label in target_models){
+  
+  # --- 1. Read the raw data (keep the RDS read) ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  
+  if(!file.exists(rds_file)){
+    message(paste("⚠️ Skipped:", model_label, "(RDS not found)"))
+    next
+  }
+  
+  str_fit <- readRDS(rds_file)
+  
+  # --- 2. Filter edges ---
+  avg_dag <- averaged.network(str_fit, threshold = FINAL_THRESHOLD)
+  final_arcs <- as.data.frame(avg_dag$arcs)
+  
+  all_nodes <- nodes(avg_dag) 
+  n_total <- length(all_nodes)
+  
+  # --- 3. Prepare the plotting matrices ---
+  # A. Adjacency matrix
+  dag_adj <- matrix(0, nrow = n_total, ncol = n_total)
+  rownames(dag_adj) <- colnames(dag_adj) <- all_nodes
+  
+  # B. Edge-colour matrix
+  edge_col_mat <- matrix("black", nrow = n_total, ncol = n_total)
+  rownames(edge_col_mat) <- colnames(edge_col_mat) <- all_nodes 
+  
+  # C. Safe group assignment
+  get_group_id_safe <- function(node_name_clean){
+    e_names_safe <- make.names(e_names)
+    l_names_safe <- make.names(l_names)
+    if(node_name_clean %in% e_names || node_name_clean %in% e_names_safe) return(1)
+    if(node_name_clean %in% l_names || node_name_clean %in% l_names_safe) return(2)
+    return(3) 
+  }
+  
+  # --- 4. Fill the matrices ---
+  if(nrow(final_arcs) > 0){
+    for(i in 1:nrow(final_arcs)){
+      f <- final_arcs[i, "from"]
+      t <- final_arcs[i, "to"]
+      
+      if(f %in% all_nodes && t %in% all_nodes){
+        dag_adj[f, t] <- 1
+        
+        g_src <- get_group_id_safe(f)
+        g_dst <- get_group_id_safe(t)
+        
+        if(g_src == g_dst) edge_col_mat[f, t] <- "gray80"       
+        else if(g_src < g_dst) edge_col_mat[f, t] <- "forestgreen" 
+        else edge_col_mat[f, t] <- "firebrick2"  
+      }
+    }
+  }
+
+  # --- 5. Build the layered layout (increased vertical spacing) ---
+  Layout_Matrix <- matrix(0, nrow = n_total, ncol = 2)
+  
+  # Get the actual indices
+  group_ids <- sapply(all_nodes, get_group_id_safe)
+  idx_e <- which(group_ids == 1)
+  idx_l <- which(group_ids == 2)
+  idx_h <- which(group_ids == 3)
+  
+  
+  # E (top): Y changed from 1.0 to 3.0
+  if(length(idx_e) > 0){
+    Layout_Matrix[idx_e, 1] <- seq(-2.4, 2.4, length.out = length(idx_e))
+    Layout_Matrix[idx_e, 2] <- 3.0 
+  }
+  # L (mid): Y stays 0.0
+  if(length(idx_l) > 0){
+    Layout_Matrix[idx_l, 1] <- seq(-1.6, 1.6, length.out = length(idx_l))
+    Layout_Matrix[idx_l, 2] <- 0.0
+  }
+  # H (bottom): Y changed from -1.0 to -3.0
+  if(length(idx_h) > 0){
+    Layout_Matrix[idx_h, 1] <- seq(-0.8, 0.8, length.out = length(idx_h))
+    Layout_Matrix[idx_h, 2] <- -3.0
+  }
+
+  # --- 6. Define communities ---
+  groups_list <- list(
+    "Environment" = idx_e,
+    "Lifestyle"   = idx_l
+  )
+  groups_list[[model_label]] <- idx_h 
+  
+  # Colour matching
+  my_colors <- c(
+    if("Environment" %in% names(custom_node_colors)) custom_node_colors["Environment"] else "#A6CEE3",
+    if("Lifestyle" %in% names(custom_node_colors)) custom_node_colors["Lifestyle"] else "#B2DF8A",
+    if(model_label %in% names(custom_node_colors)) custom_node_colors[model_label] else "#FB9A99"
+  )
+
+  # --- 7. Plot (keeping your parameters exactly) ---
+  tryCatch({
+    pdf_name <- file.path(out_dir_dag, paste0("DAG_Layered2_", model_label, ".pdf"))
+    pdf(pdf_name, width = 32, height = 16)
+    
+    qgraph(dag_adj, 
+           layout = Layout_Matrix, 
+           rescale = TRUE,
+           
+           # === Style ===
+           edge.color = edge_col_mat, 
+           groups = groups_list,
+           color = my_colors, 
+           labels = colnames(dag_adj), 
+           
+           vsize = 2.5,
+           label.cex = 0.8,
+           
+           border.color = "gray30",
+           nodeNames = NULL,
+           legend = TRUE, 
+           legend.cex = 0.5, 
+           
+           directed = TRUE,
+           mode = "direct",
+           esize = 1.2,
+           asize = 2.0,
+           
+           curve = 0.3,     
+           curveAll = TRUE,
+           
+           title = paste("DAG Structure (Layered):", model_label),
+           title.cex = 1.6,
+           mar = c(9, 5, 5, 3) 
+    )
+    
+    mtext(param_label_1, side = 1, line = 3, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    mtext(param_label_2, side = 1, line = 4.5, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    
+    dev.off()
+    message(paste("   ✅ Layered Plot Saved (Vertical Spacing x3):", model_label))
+    
+  }, error = function(e){
+    message(paste("   ❌ Error:", e$message))
+    if(dev.cur() > 1) dev.off()
+  })
+}
+
+
+# DAG_Spring_plot
+```{r}
+library(qgraph)
+library(dplyr)
+library(bnlearn)
+
+
+# STEP 3: Final plotting (free layout + high-repulsion comparison)
+
+
+FINAL_THRESHOLD <- 0.70 # or 0.90
+
+# Labels
+param_label_1 <- paste0("Threshold: ", FINAL_THRESHOLD, " | Layout: High Repulsion Spring")
+param_label_2 <- "Green: Forward | Red: Feedback | Gray: Within-Group"
+
+message(paste("\n🎨 [Step 3 Contrast] STARTING FORCE-DIRECTED PLOTTING | Threshold:", FINAL_THRESHOLD))
+
+target_models <- names(multi_models) 
+
+for(model_label in target_models){
+  
+  # --- 1. Read the raw data (unchanged) ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  
+  if(!file.exists(rds_file)){
+    message(paste("⚠️ Skipped:", model_label, "(RDS not found)"))
+    next
+  }
+  
+  str_fit <- readRDS(rds_file)
+  
+  # --- 2. Filter edges ---
+  avg_dag <- averaged.network(str_fit, threshold = FINAL_THRESHOLD)
+  final_arcs <- as.data.frame(avg_dag$arcs)
+  all_nodes <- nodes(avg_dag) 
+  n_total <- length(all_nodes)
+  
+  # --- 3. Prepare matrices ---
+  dag_adj <- matrix(0, nrow = n_total, ncol = n_total)
+  rownames(dag_adj) <- colnames(dag_adj) <- all_nodes
+  
+  edge_col_mat <- matrix("black", nrow = n_total, ncol = n_total)
+  rownames(edge_col_mat) <- colnames(edge_col_mat) <- all_nodes 
+  
+  # Group-assignment helper function
+  get_group_id_safe <- function(node_name_clean){
+    e_names_safe <- make.names(e_names)
+    l_names_safe <- make.names(l_names)
+    if(node_name_clean %in% e_names || node_name_clean %in% e_names_safe) return(1)
+    if(node_name_clean %in% l_names || node_name_clean %in% l_names_safe) return(2)
+    return(3) 
+  }
+  
+  # --- 4. Fill matrices & colour edges ---
+  if(nrow(final_arcs) > 0){
+    for(i in 1:nrow(final_arcs)){
+      f <- final_arcs[i, "from"]
+      t <- final_arcs[i, "to"]
+      
+      if(f %in% all_nodes && t %in% all_nodes){
+        dag_adj[f, t] <- 1
+        
+        g_src <- get_group_id_safe(f)
+        g_dst <- get_group_id_safe(t)
+        
+        if(g_src == g_dst) edge_col_mat[f, t] <- "gray80"       
+        else if(g_src < g_dst) edge_col_mat[f, t] <- "forestgreen" 
+        else edge_col_mat[f, t] <- "firebrick2"  
+      }
+    }
+  }
+
+  # --- 5. Define communities (keep the index logic) ---
+  group_ids <- sapply(all_nodes, get_group_id_safe)
+  idx_e <- which(group_ids == 1)
+  idx_l <- which(group_ids == 2)
+  idx_h <- which(group_ids == 3)
+  
+  groups_list <- list("Environment" = idx_e, "Lifestyle" = idx_l)
+  groups_list[[model_label]] <- idx_h 
+  
+  my_colors <- c(
+    if("Environment" %in% names(custom_node_colors)) custom_node_colors["Environment"] else "#A6CEE3",
+    if("Lifestyle" %in% names(custom_node_colors)) custom_node_colors["Lifestyle"] else "#B2DF8A",
+    if(model_label %in% names(custom_node_colors)) custom_node_colors[model_label] else "#FB9A99"
+  )
+
+  # --- 6. Plot (free layout) ---
+  tryCatch({
+    pdf_name <- file.path(out_dir_dag, paste0("DAG_Spring_", model_label, ".pdf"))
+    
+    pdf(pdf_name, width = 32, height = 16)
+    
+    qgraph(dag_adj, 
+           layout = "spring",
+           layout.par = list(
+             repulsion = 3.0,      # repulsion: very strong (default ~1), pushes nodes far apart
+             area = n_total^3.5,   # area: large, lets nodes spread out fully
+             cool.exp = 1.1,       # cooling exponent
+             niter = 5000          # iterations: run longer for a more stable structure
+           ),
+           
+           rescale = TRUE,
+           
+           # === Style (unchanged) ===
+           edge.color = edge_col_mat, 
+           groups = groups_list,
+           color = my_colors, 
+           labels = colnames(dag_adj), 
+           
+           vsize = 2.5,
+           label.cex = 0.8,
+           
+           border.color = "gray30",
+           nodeNames = NULL,
+           legend = TRUE, 
+           legend.cex = 0.5,
+           
+           directed = TRUE,
+           mode = "direct",
+           esize = 1.2,
+           asize = 2.0,
+           
+           curve = 0.3,     
+           curveAll = TRUE, 
+           
+           title = paste("DAG Structure (Free Spring Layout):", model_label),
+           title.cex = 1.6,
+           mar = c(9, 5, 5, 3)
+    )
+    
+    mtext(param_label_1, side = 1, line = 3, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    mtext(param_label_2, side = 1, line = 4.5, adj = 0, cex = 0.85, col = "gray40", font = 3)
+    
+    dev.off()
+    message(paste("   ✅ Spring Layout Plot Saved:", model_label))
+    
+  }, error = function(e){
+    message(paste("   ❌ Error:", e$message))
+    if(dev.cur() > 1) dev.off()
+  })
+}
+```
+
+
+# Summary: BGGM and DAG integration visulization
+```{r}
+# ==============================================================================
+# 0. Setup & global configuration
+# ==============================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(networktools) 
+library(tibble)
+library(ggalluvial)
+library(bnlearn) # required for handling the RDS objects
+
+# Path configuration
+out_dir     <- out_fig_dir
+# Important: make sure your .rds files (Boot_Object_...) are under out_fig_dir/DAG_Analysis
+out_dir_dag <- file.path(out_fig_dir, "DAG_Analysis")
+
+if(!dir.exists(out_dir)) dir.create(out_dir, recursive=TRUE)
+
+# Key: set the DAG threshold (must match the Step 3 plotting exactly)
+DAG_THRESHOLD <- 0.70  
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+
+# --- Colour scheme ---
+my_colors <- c(
+  "Environment"     = "#AEC7E8",  
+  "Lifestyle"       = "#98DF8A",  
+  "Mental_Health"   = "#D8BFD8",  
+  "Physical_Health" = "#FFBB78",  
+  "Social_Health"   = "#FFB6C1"   
+)
+
+
+heatmap_neg <- "#CD5C5C" 
+heatmap_mid <- "white"   
+heatmap_pos <- "#2E8B57"
+
+
+# ==============================================================================
+# 🎯 Figure 3 Combined: Shared Y-Axis + Dual Bridge Asterisks
+# ==============================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(networktools)
+library(tibble)
+library(bnlearn)
+library(patchwork)
+library(scales) 
+
+
+# Asterisk colours
+color_env_bridge <- "#800080" # purple (Environment)
+color_health_bridge <- "#0000FF" # blue (Health)
+
+message("\n========== Generating Figure 3 (dual asterisks) ==========")
+
+# --- Step 1: Gather all data and compute bridge centrality ---
+list_edges <- list()
+all_y_nodes <- c() 
+
+for (model_label in models) {
+
+# A. Read BGGM (auto-detect separator)
+  # --------------------------------------------------------
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  
+  if (!file.exists(bggm_file)) {
+    message(paste0("Resid file not found, trying the NPN file..."))
+    bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  }
+  
+  if (!file.exists(bggm_file)) next
+
+  first_line <- readLines(bggm_file, n = 1)
+  
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  
+  if (ncol(raw_data) <= 1) {
+    message(paste0("   CSV format looks wrong (<=1 column), trying semicolon (;)..."))
+    raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  }
+  
+  if (ncol(raw_data) <= 1) {
+    message(paste0("   still unresolved, trying tab (\t)..."))
+    raw_data <- read.table(bggm_file, sep = "\t", header = TRUE, check.names = FALSE)
+  }
+
+  # 5. Handle row names
+  if (ncol(raw_data) > 1) {
+    rownames(raw_data) <- raw_data[, 1]
+    adj_mat <- as.matrix(raw_data[, -1])
+  } else {
+    message("   Serious error: could not parse data columns; check the CSV separator manually.")
+    message(paste0("   first line of the file: ", first_line))
+    next
+  }
+
+  
+  # B. Bridge EI computation
+  node_names <- colnames(adj_mat)
+  communities_vec <- case_when(grepl("^E", node_names) ~ "Environment", grepl("^L", node_names) ~ "Lifestyle", TRUE ~ "Health")
+  
+  bridge_map <- tryCatch({
+    bridge_res <- networktools::bridge(adj_mat, communities = communities_vec, useCommunities = "all", directed = FALSE)
+    df_bridge <- data.frame(Node = node_names, Bridge_EI = bridge_res$`Bridge Expected Influence (1-step)`)
+    
+    # Keep the top 20%
+    threshold <- quantile(df_bridge$Bridge_EI, 0.80, na.rm = TRUE) 
+    setNames((df_bridge$Bridge_EI >= threshold) & (df_bridge$Bridge_EI > 0), df_bridge$Node)
+    
+  }, error = function(e) setNames(rep(FALSE, length(node_names)), node_names))
+  
+  # C. Read the DAG
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  dag_status <- "not found / failed to load"
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0) {
+        # Build safe keys
+        dag_keys <- paste0(make.names(dag_arcs$from), "->", make.names(dag_arcs$to))
+        dag_status <- paste0("loaded (edges: ", nrow(dag_arcs), ")")
+    } else {
+        dag_status <- "loaded but no edges (threshold too high?)"
+    }
+  }
+
+  # ============================================================
+  # Data integrity check (diagnostic)
+  # ============================================================
+  message(paste0("\n--------------------------------------------------"))
+  message(paste0("Checking model: [", model_label, "]"))
+  message(paste0("   1. BGGM matrix: ", nrow(adj_mat), " rows x ", ncol(adj_mat), " cols"))
+  message(paste0("   2. sample variable names: ", paste(head(node_names, 3), collapse=", ")))
+  message(paste0("   3. DAG status: ", dag_status))
+  
+  if(length(dag_keys) > 0) {
+      message(paste0("   4. sample DAG keys (make.names):"))
+      message(paste0("      -> ", head(dag_keys, 2)))
+  }
+  message(paste0("--------------------------------------------------\n"))
+  # ============================================================
+
+  
+# D. Build the data (robust version: direct matrix indexing)
+# -----------------------------------------------------------
+# 1. Ensure it is a matrix
+  adj_mat <- as.matrix(adj_mat)
+  
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  
+  if (nrow(indices) > 0) {
+    edges_df <- data.frame(
+      V1_str = rownames(adj_mat)[indices[, 1]],
+      V2_str = colnames(adj_mat)[indices[, 2]],
+      Freq   = adj_mat[indices],
+      stringsAsFactors = FALSE
+    )
+  } else {
+    edges_df <- data.frame(V1_str=character(), V2_str=character(), Freq=numeric())
+  }
+
+  edges_df <- edges_df %>% 
+    mutate(
+      Type_From = case_when(grepl("^E", .data$V1_str) ~ "E", grepl("^L", .data$V1_str) ~ "L", TRUE ~ "H"),
+      Type_To   = case_when(grepl("^E", .data$V2_str) ~ "E", grepl("^L", .data$V2_str) ~ "L", TRUE ~ "H")
+    ) %>%
+    # keep cross-level edges only
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(
+      Source = ifelse(Type_From == "E", V1_str, V2_str),
+      Target = ifelse(Type_To == "H", V2_str, V1_str),
+      
+      Is_Env_Bridge = bridge_map[Source],
+      Is_Health_Bridge = bridge_map[Target],
+
+      Expected_Key = paste0(make.names(Source), "->", make.names(Target)),
+      Reverse_Key  = paste0(make.names(Target), "->", make.names(Source)),
+  
+      Direction_Type = case_when(
+        Expected_Key %in% dag_keys ~ "Expected (E->H)", 
+        Reverse_Key %in% dag_keys ~ "Reverse (H->E)", 
+        TRUE ~ NA_character_
+      )
+    )
+  
+  if (nrow(edges_df) > 0) {
+    list_edges[[model_label]] <- edges_df
+    all_y_nodes <- c(all_y_nodes, unique(edges_df$Source)) 
+  }
+}
+
+unified_y_levels <- sort(unique(all_y_nodes))
+
+# --- Step 2: Plot ---
+plot_list <- list()
+
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  if(is.null(list_edges[[model_label]])) next
+  df_curr <- list_edges[[model_label]]
+  clean_title <- gsub("_", " ", model_label)
+  show_y_axis <- (i == 1)
+  
+  p <- ggplot(df_curr, aes(x = Target, y = Source)) + 
+    coord_fixed(ratio = 1) +
+    
+    # 1. Heatmap
+    geom_tile(aes(fill = Freq), color = "white", linewidth = 0.5) + 
+    scale_fill_gradient2(low = heatmap_neg, mid = heatmap_mid, high = heatmap_pos, 
+                         midpoint = 0, limits = c(-0.1, 0.1), oob = scales::squish, name = "Partial Correlation") +
+    
+    # 2. Values (nudged down)
+    geom_text(aes(label = sprintf("%.2f", Freq)), size = 2.8, color = "black", fontface = "bold", position = position_nudge(y = -0.15)) +
+    
+    # 3. Environment-factor asterisk (top-left, purple)
+    geom_text(data = subset(df_curr, Is_Env_Bridge), 
+              label = "*", color = color_env_bridge, size = 6, fontface = "bold",
+              position = position_nudge(x = -0.3, y = 0.25)) +
+    
+    # 4. Health-factor asterisk (top-right, blue)
+    geom_text(data = subset(df_curr, Is_Health_Bridge), 
+              label = "*", color = color_health_bridge, size = 6, fontface = "bold",
+              position = position_nudge(x = 0.3, y = 0.25)) +
+    
+    # 5. Direction marker (upper-centre)
+    geom_point(aes(shape = Direction_Type), color = "black", size = 3, na.rm = TRUE, position = position_nudge(y = 0.15)) +
+    geom_point(aes(shape = Direction_Type, color = Direction_Type), size = 2, na.rm = TRUE, position = position_nudge(y = 0.15)) +
+    
+    scale_shape_manual(values = c("Expected (E->H)" = 19, "Reverse (H->E)" = 17)) +
+    scale_color_manual(values = c("Expected (E->H)" = "#FFD700", "Reverse (H->E)" = "#CD5C5C")) +
+    scale_y_discrete(limits = unified_y_levels, drop = FALSE) +
+    
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
+      axis.text.y = if(show_y_axis) element_text(size = 9, color = "black") else element_blank(),
+      axis.title.y = if(show_y_axis) element_text(size = 10, face="bold") else element_blank(),
+      axis.ticks.y = if(show_y_axis) element_line() else element_blank(),
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      panel.border = element_rect(color = "grey80", fill = NA, linewidth = 0.5),
+      legend.position = "bottom",
+      legend.box = "horizontal"
+    ) +
+    labs(title = clean_title, x = NULL, y = if(show_y_axis) "Environmental Factors" else NULL)
+  
+  plot_list[[model_label]] <- p
+}
+
+# --- Step 3: Assemble the panels ---
+if (length(plot_list) > 0) {
+  
+  combined_plot <- wrap_plots(plot_list, ncol = 3) + 
+    plot_layout(guides = "collect") + 
+    plot_annotation(
+      title = "Figure 3: Direct Pathways across Health Domains (Dual Bridge Markers)",
+      subtitle = paste0("Note: Top-Left Purple '*' = Environment Bridge; Top-Right Blue '*' = Health Bridge.\n", "Color range [-0.1, 0.1]. Shapes indicate DAG direction."),
+      theme = theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray30")
+      )
+    )
+  
+  ggsave(file.path(out_dir, "Figure3_Combined_DualStars.pdf"), combined_plot, width = 18, height = 7)
+  print(combined_plot)
+  message("Figure 3 (dual stars) complete.")
+  
+} else {
+  message("No data.")
+}
+
+# ==============================================================================
+# Refined Figure 3: bubble matrix - red/green colour version
+# ==============================================================================
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(here)
+library(networktools)
+
+message("\n========== Generating the red/green bubble matrix ==========")
+
+# --- 1. Paths and configuration ---
+source_dir <- here::here("output")
+save_dir   <- here::here("plot")
+if(!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+color_env_bridge <- "#800080" 
+color_health_bridge <- "#0000FF"
+
+color_pos <- "#228B22"  # forest green (positive)
+color_neg <- "#EE2C2C"  # firebrick red (negative)
+color_mid <- "#F7F7F7"  # very light grey
+
+plot_list <- list()
+
+# --- 2. Loop ---
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  
+  # A. Read data (brief)
+  bggm_file <- file.path(source_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) bggm_file <- here::here("plot", paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  if (ncol(raw_data) <= 1) raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  if (ncol(raw_data) > 1) { rownames(raw_data) <- raw_data[, 1]; adj_mat <- as.matrix(raw_data[, -1]) } else next
+
+  # B. Compute bridge centrality
+  node_names <- colnames(adj_mat)
+  communities_vec <- case_when(grepl("^E", node_names) ~ "Environment", grepl("^L", node_names) ~ "Lifestyle", TRUE ~ "Health")
+  bridge_map <- tryCatch({
+    bridge_res <- networktools::bridge(adj_mat, communities = communities_vec, useCommunities = "all", directed = FALSE)
+    df_bridge <- data.frame(Node = node_names, Bridge_EI = bridge_res$`Bridge Expected Influence (1-step)`)
+    threshold <- quantile(df_bridge$Bridge_EI, 0.80, na.rm = TRUE) 
+    setNames((df_bridge$Bridge_EI >= threshold) & (df_bridge$Bridge_EI > 0), df_bridge$Node)
+  }, error = function(e) setNames(rep(FALSE, length(node_names)), node_names))
+
+  # C. Extract edge data
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  if(nrow(indices) == 0) next
+  df_curr <- data.frame(Source = rownames(adj_mat)[indices[, 1]], Target = colnames(adj_mat)[indices[, 2]], Freq = adj_mat[indices], stringsAsFactors = FALSE) %>%
+    mutate(Type_From = case_when(grepl("^E", Source) ~ "E", grepl("^L", Source) ~ "L", TRUE ~ "H"),
+           Type_To   = case_when(grepl("^E", Target) ~ "E", grepl("^L", Target) ~ "L", TRUE ~ "H")) %>%
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(Real_Source = ifelse(Type_From == "E", Source, Target), Real_Target = ifelse(Type_To == "H", Target, Source),
+           Is_Env_Bridge = bridge_map[Real_Source], Is_Health_Bridge = bridge_map[Real_Target]) %>%
+    select(Source = Real_Source, Target = Real_Target, Freq, Is_Env_Bridge, Is_Health_Bridge)
+
+  if(nrow(df_curr) == 0) next
+  
+  # D. Plot (bubble plot)
+  clean_title <- gsub("_", " ", model_label)
+  show_y_axis <- (i == 1)
+  
+  p <- ggplot(df_curr, aes(x = Target, y = Source)) + 
+    coord_fixed(ratio = 1) +
+    geom_tile(fill = NA, color = "grey92", linewidth = 0.5) +
+    geom_point(aes(size = abs(Freq), fill = Freq), shape = 21, color = "white", stroke = 0.5) +
+    scale_size_continuous(range = c(6, 18), limits = c(0, 0.5), guide = "none") + 
+    
+    scale_fill_gradient2(low = color_neg, mid = color_mid, high = color_pos, 
+                         midpoint = 0, limits = c(-0.25, 0.25), oob = scales::squish, 
+                         name = "Partial Correlation") +
+    
+    geom_text(aes(label = sprintf("%.2f", Freq)), size = 3, fontface = "bold", 
+              color = ifelse(abs(df_curr$Freq) > 0.15, "white", "black")) +
+    geom_text(data = subset(df_curr, Is_Env_Bridge), label = "★", color = color_env_bridge, size = 5, vjust = 0.5, position = position_nudge(x = -0.35, y = 0.35)) +
+    geom_text(data = subset(df_curr, Is_Health_Bridge), label = "★", color = color_health_bridge, size = 5, vjust = 0.5, position = position_nudge(x = 0.35, y = 0.35)) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1, size = 10, color = "black", face = "bold"),
+          axis.text.y = if(show_y_axis) element_text(size = 10, color = "black", face = "bold") else element_blank(),
+          axis.title = element_blank(), plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+          panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8), legend.position = "bottom") +
+    labs(title = clean_title)
+  
+  plot_list[[model_label]] <- p
+}
+
+# --- 3. Assemble and save ---
+if (length(plot_list) > 0) {
+  combined_plot <- wrap_plots(plot_list, ncol = 3) + plot_layout(guides = "collect") + 
+    plot_annotation(
+      title = "Figure 3: Bilateral Relationships (Bubble Matrix)",
+      subtitle = "Bubble size = Magnitude; Color = Sign (Green = Positive, Red = Negative); ★ = Top 20% Bridge Node",
+      theme = theme(plot.title = element_text(size = 16, face = "bold"))
+    )
+  out_pdf <- file.path(save_dir, "Figure3_Combined_BubbleStyle_GreenRed.pdf")
+  ggsave(out_pdf, combined_plot, width = 18, height = 7)
+  message(paste("Red/green bubble plot saved to:", out_pdf))
+  print(combined_plot)
+} else {
+  message("No figure produced; check the data source.")
+}
+
+
+
+# ==============================================================================
+# Final Figure 3B: bipartite network flow (sorted + green/red colour)
+# ==============================================================================
+# Fix: package name corrected to ggbump (all lowercase)
+# ==============================================================================
+
+# 1. Check and install (corrected package name)
+if (!requireNamespace("ggbump", quietly = TRUE)) install.packages("ggbump")
+
+# 2. Load packages
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(here)
+library(ggbump) # <--- corrected to lowercase
+
+message("\n========== Generating the red/green sorted flow plot ==========")
+
+# --- 1. Paths and configuration ---
+source_dir <- here::here("output")
+save_dir   <- here::here("plot")
+if(!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+
+# Colour scheme
+color_pos <- "#228B22"  # forest green (positive)
+color_neg <- "#EE2C2C"  # firebrick red (negative)
+color_mid <- "grey90"   # midpoint colour
+
+bipartite_list <- list()
+
+# --- 2. Loop over each model ---
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  
+  # A. Read data
+  bggm_file <- file.path(source_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) bggm_file <- here::here("plot", paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  if (ncol(raw_data) <= 1) raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  if (ncol(raw_data) > 1) {
+    rownames(raw_data) <- raw_data[, 1]
+    adj_mat <- as.matrix(raw_data[, -1])
+  } else next
+
+  # B. Extract cross-level edges
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  if(nrow(indices) == 0) next
+  
+  df_curr <- data.frame(
+    Source = rownames(adj_mat)[indices[, 1]],
+    Target = colnames(adj_mat)[indices[, 2]],
+    Freq   = adj_mat[indices],
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      Type_From = case_when(grepl("^E", Source) ~ "E", grepl("^L", Source) ~ "L", TRUE ~ "H"),
+      Type_To   = case_when(grepl("^E", Target) ~ "E", grepl("^L", Target) ~ "L", TRUE ~ "H")
+    ) %>%
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(
+      Real_Source = ifelse(Type_From == "E", Source, Target),
+      Real_Target = ifelse(Type_To == "H", Target, Source)
+    ) %>%
+    select(Source = Real_Source, Target = Real_Target, Freq)
+
+  if(nrow(df_curr) == 0) next
+
+  # C. Sort by strength
+  rank_source <- df_curr %>% group_by(Source) %>% summarise(Total_Weight = sum(abs(Freq))) %>% arrange(desc(Total_Weight))
+  rank_target <- df_curr %>% group_by(Target) %>% summarise(Total_Weight = sum(abs(Freq))) %>% arrange(desc(Total_Weight))
+  
+  sorted_sources <- rank_source$Source
+  sorted_targets <- rank_target$Target
+  
+  # Assign Y coordinates
+  df_nodes_source <- data.frame(
+    Label = sorted_sources, x = 0, 
+    y = if(length(sorted_sources)>1) seq(0.9, 0.1, length.out = length(sorted_sources)) else 0.5
+  )
+  df_nodes_target <- data.frame(
+    Label = sorted_targets, x = 1, 
+    y = if(length(sorted_targets)>1) seq(0.9, 0.1, length.out = length(sorted_targets)) else 0.5
+  )
+  
+  # Merge coordinates
+  df_flow <- df_curr %>%
+    left_join(df_nodes_source, by = c("Source" = "Label")) %>% rename(x_start = x, y_start = y) %>%
+    left_join(df_nodes_target, by = c("Target" = "Label")) %>% rename(x_end = x, y_end = y)
+  
+  p_flow <- ggplot() +
+    # sigmoid curve
+    ggbump::geom_sigmoid(data = df_flow, 
+                         aes(x = x_start + 0.02, y = y_start, xend = x_end - 0.02, yend = y_end, 
+                             color = Freq, linewidth = abs(Freq)),
+                         alpha = 0.8, smooth = 8, direction = "x") +
+    # nodes
+    geom_point(data = df_nodes_source, aes(x = x, y = y), size = 5, shape = 21, fill = "white", color = "black", stroke = 0.8) +
+    geom_point(data = df_nodes_target, aes(x = x, y = y), size = 5, shape = 21, fill = "white", color = "black", stroke = 0.8) +
+    # Labels
+    geom_text(data = df_nodes_source, aes(x = x - 0.05, y = y, label = Label), hjust = 1, size = 3.2, fontface = "bold") +
+    geom_text(data = df_nodes_target, aes(x = x + 0.05, y = y, label = Label), hjust = 0, size = 3.2, fontface = "bold") +
+    # values
+    geom_text(data = df_flow, 
+              aes(x = (x_start + x_end)/2, y = (y_start + y_end)/2 + 0.02, 
+                  label = sprintf("%.2f", Freq), color = Freq), 
+              size = 2.5, fontface = "bold", check_overlap = TRUE, show.legend = FALSE) +
+    
+    # red/green colours
+    scale_color_gradient2(low = color_neg, mid = color_mid, high = color_pos, 
+                          limits = c(-0.25, 0.25), name = "Partial Corr.") +
+    scale_linewidth(range = c(0.8, 4), guide = "none") +
+    
+    xlim(-0.4, 1.4) + ylim(-0.05, 1.05) + 
+    labs(title = gsub("_", " ", model_label)) +
+    theme_void() +
+    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, face = "bold", margin = margin(b = 10)), plot.margin = margin(t = 20, b = 10))
+
+  bipartite_list[[model_label]] <- p_flow
+}
+
+# --- 3. Assemble and save ---
+if (length(bipartite_list) > 0) {
+  
+  # 1. Combine the panels
+  p_combined_flow <- wrap_plots(bipartite_list, ncol = 3) + 
+    plot_layout(guides = "collect") +
+    plot_annotation(
+      title = "Figure 3B: Bipartite Network Flow (Sorted by Strength)",
+      subtitle = "Nodes ordered by total strength. Color indicates sign (Green = Positive, Red = Negative).",
+      theme = theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray30")
+      )
+    )
+  
+  # 2. Set the save path
+  out_pdf <- file.path(save_dir, "Figure3B_Bipartite_Flow_Sorted_GreenRed.pdf")
+  
+  # 3. Save
+  ggsave(out_pdf, p_combined_flow, width = 18, height = 8)
+  
+  message(paste("Red/green flow plot saved to:", out_pdf))
+  print(p_combined_flow)
+  
+} else {
+  message("No figure produced; check the data source.")
+}
+
+# ==============================================================================
+# Figure 3B: bipartite Sankey / alluvial flow plot
+# ==============================================================================
+# Core design:
+# 1. Follow the Sankey style of Figure 4 (ggalluvial).
+# 2. Left stratum = environment factors (E); right stratum = health factors (H).
+# 3. Bar height = sum of all edge strengths at that node (reflects "volume").
+# 4. Band colour: red = negative, green = positive.
+# ==============================================================================
+
+# 1. Check and install ggalluvial
+if (!requireNamespace("ggalluvial", quietly = TRUE)) install.packages("ggalluvial")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(here)
+library(ggalluvial) # core plotting package
+
+message("\n========== Generating Figure 3B (Sankey style) ==========")
+
+# --- 1. Paths and configuration ---
+source_dir <- here::here("output")
+save_dir   <- here::here("plot")
+if(!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+
+# Colours: red = negative, green = positive
+color_pos <- "#228B22"  # Forest Green
+color_neg <- "#EE2C2C"  # Firebrick Red
+
+plot_list <- list()
+
+# --- 2. Loop over each model ---
+for (model_label in models) {
+  
+  # A. Read data
+  bggm_file <- file.path(source_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) bggm_file <- here::here("plot", paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  if (ncol(raw_data) <= 1) raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  if (ncol(raw_data) > 1) {
+    rownames(raw_data) <- raw_data[, 1]
+    adj_mat <- as.matrix(raw_data[, -1])
+  } else next
+
+  # B. Extract cross-level edges (E <-> H)
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  if(nrow(indices) == 0) next
+  
+  df_curr <- data.frame(
+    Source = rownames(adj_mat)[indices[, 1]],
+    Target = colnames(adj_mat)[indices[, 2]],
+    Freq   = adj_mat[indices],
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      Type_From = case_when(grepl("^E", Source) ~ "E", grepl("^L", Source) ~ "L", TRUE ~ "H"),
+      Type_To   = case_when(grepl("^E", Target) ~ "E", grepl("^L", Target) ~ "L", TRUE ~ "H")
+    ) %>%
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(
+      Real_Source = ifelse(Type_From == "E", Source, Target),
+      Real_Target = ifelse(Type_To == "H", Target, Source)
+    ) %>%
+    select(Source = Real_Source, Target = Real_Target, Freq) %>%
+    # add sign labels for fill colour
+    mutate(
+      Direction = ifelse(Freq > 0, "Positive (+)", "Negative (-)"),
+      Abs_Freq  = abs(Freq) # used for width mapping
+    )
+
+  if(nrow(df_curr) == 0) next
+
+  # C. Plot (using ggalluvial)
+  # ---------------------------------------------------------
+  clean_title <- gsub("_", " ", model_label)
+  
+  p <- ggplot(df_curr,
+              aes(axis1 = Source, axis2 = Target, y = Abs_Freq)) + # y maps to the absolute value, driving bar height
+    
+    # 1. Flow layer (alluvium)
+    geom_alluvium(aes(fill = Direction), 
+                  width = 1/6,       # stratum width
+                  alpha = 0.7,       # transparency (the desired overlay effect)
+                  curve_type = "sigmoid") + # smooth sigmoid curve
+    
+    # 2. Stratum layer - bar height equals the aggregated volume
+    geom_stratum(width = 1/6, fill = "grey95", color = "grey30") +
+    
+    # 3. Text labels
+    geom_text(stat = "stratum", aes(label = after_stat(stratum)), 
+              size = 3, fontface = "bold") +
+    
+    # 4. Style settings
+    scale_x_discrete(limits = c("Environment", "Health Outcome"), expand = c(0.1, 0.1)) +
+    scale_fill_manual(values = c("Positive (+)" = color_pos, "Negative (-)" = color_neg)) +
+    
+    labs(title = clean_title, 
+         y = "Total Connection Strength (|r| sum)", 
+         fill = "Correlation") +
+    
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.y = element_blank(), # hide Y ticks; only relative height matters
+      axis.ticks = element_blank(),
+      axis.text.x = element_text(size = 12, face = "bold", color = "black"),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "bottom"
+    )
+
+  plot_list[[model_label]] <- p
+}
+
+# --- 3. Assemble and save ---
+if (length(plot_list) > 0) {
+  
+  library(patchwork)
+  
+  # 1. Combine the panels
+  p_combined <- wrap_plots(plot_list, ncol = 3) + 
+    plot_layout(guides = "collect") +
+    plot_annotation(
+      title = "Figure 3B: Bipartite Network Flow (Sankey Style)",
+      subtitle = "Bar height represents total connection strength. Band width represents individual correlation magnitude.",
+      theme = theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        legend.position = "bottom" # set the legend position here
+      )
+    )
+  
+  # 2. Save
+  out_pdf <- file.path(save_dir, "Figure3B_Bipartite_Sankey.pdf")
+  ggsave(out_pdf, p_combined, width = 18, height = 8)
+  
+  message(paste("Sankey-style bipartite plot saved to:", out_pdf))
+  print(p_combined)
+  
+} else {
+  message("No figure produced; check the data source.")
+}
+
+```
+
+
+```{r}
+
+# ==============================================================================
+# 3. Figure 6: DAG summary (reads RDS directly)
+# ==============================================================================
+message("\n========== Generating Figure 6 (DAG summary) ==========")
+
+list_dag_summary <- list()
+
+for (model_label in models) {
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  
+  edges_bggm <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0, abs(Freq) > 0.02) %>%
+    rename(Node1 = Var1, Node2 = Var2) %>%
+    mutate(
+      Type1 = case_when(grepl("^E", Node1)~"E", grepl("^L", Node1)~"L", grepl("^[MPS]", Node1)~"H", TRUE~"O"),
+      Type2 = case_when(grepl("^E", Node2)~"E", grepl("^L", Node2)~"L", grepl("^[MPS]", Node2)~"H", TRUE~"O")
+    ) %>%
+    rowwise() %>%
+    mutate(Key = paste(sort(c(as.character(Node1), as.character(Node2))), collapse = "|")) %>%
+    ungroup() %>% distinct(Key, .keep_all = TRUE)
+  
+  # --- Key change: read the RDS ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0){
+      from_safe <- make.names(dag_arcs$from)
+      to_safe   <- make.names(dag_arcs$to)
+      dag_keys  <- paste0(from_safe, "->", to_safe)
+    }
+  }
+
+classify_edge <- function(n1, n2, t1, t2) {
+      s1 <- make.names(n1)
+    s2 <- make.names(n2)
+
+    if(setequal(c(t1,t2), c("E","L"))) { 
+      p="E-L"; 
+      exp=paste0(ifelse(t1=="E",s1,s2),"->",ifelse(t1=="L",s1,s2)); 
+      rev=paste0(ifelse(t1=="L",s1,s2),"->",ifelse(t1=="E",s1,s2)) 
+    }
+    else if(setequal(c(t1,t2), c("L","H"))) { 
+      p="L-H"; 
+      exp=paste0(ifelse(t1=="L",s1,s2),"->",ifelse(t1=="H",s1,s2)); 
+      rev=paste0(ifelse(t1=="H",s1,s2),"->",ifelse(t1=="L",s1,s2)) 
+    }
+    else if(setequal(c(t1,t2), c("E","H"))) { 
+      p="E-H"; 
+      exp=paste0(ifelse(t1=="E",s1,s2),"->",ifelse(t1=="H",s1,s2)); 
+      rev=paste0(ifelse(t1=="H",s1,s2),"->",ifelse(t1=="E",s1,s2)) 
+    }
+    else return(NULL)
+    
+    stat <- "Undirected (BGGM Only)"
+    if(exp %in% dag_keys) stat <- "Directed (Expected)"
+    else if(rev %in% dag_keys) stat <- "Directed (Reverse)"
+    return(data.frame(Domain=p, Status=stat))
+}
+
+  res_list <- list()
+  for(i in 1:nrow(edges_bggm)) res_list[[i]] <- classify_edge(as.character(edges_bggm$Node1[i]), as.character(edges_bggm$Node2[i]), edges_bggm$Type1[i], edges_bggm$Type2[i])
+  df_sum <- bind_rows(res_list)
+  if(nrow(df_sum)>0) { df_sum$Model <- model_label; list_dag_summary[[model_label]] <- df_sum }
+}
+
+df_fig6 <- bind_rows(list_dag_summary)
+if(nrow(df_fig6)>0) {
+  p6 <- ggplot(df_fig6, aes(x=Domain, fill=Status)) +
+    geom_bar(position="stack", width=0.6) +
+    geom_text(stat='count', aes(label=after_stat(count)), position=position_stack(vjust=0.5), color="white", size=3) +
+    facet_wrap(~Model, scales="free_y") +
+    scale_fill_manual(values=c("Directed (Expected)"="#2E8B57", "Directed (Reverse)"="#CD5C5C", "Undirected (BGGM Only)"="#A9A9A9")) +
+    labs(title="Figure 6: Summary of Causal Directions", subtitle=paste0("Threshold: ", DAG_THRESHOLD, " (RDS Source)"), x="Domain Pair", y="Edge Count") +
+    theme_minimal() + theme(legend.position="bottom")
+  
+  ggsave(file.path(out_dir, "Figure6_DAG_Summary.pdf"), p6, width=12, height=8)
+  print(p6)
+  message("Figure 6 complete.")
+}
+
+# ==============================================================================
+# 4. Figure 4: indirect pathways (reads RDS directly)
+# ==============================================================================
+message("\n========== Generating Figure 4 (indirect pathways) ==========")
+
+list_indirect <- list()
+
+for (model_label in models) {
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  
+  # --- Key change: read the RDS ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0){
+      from_safe <- make.names(dag_arcs$from)
+      to_safe   <- make.names(dag_arcs$to)
+      dag_keys  <- paste0(from_safe, "->", to_safe)
+    }
+  }
+  
+  # Build the base edge list
+  edges_bggm <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0, abs(Freq) > 0.00) %>%
+    mutate(Strength = abs(Freq)) %>%
+    mutate(
+      Type1 = case_when(grepl("^E", Var1)~"E", grepl("^L", Var1)~"L", grepl("^[MPS]", Var1)~"H", TRUE~"Other"),
+      Type2 = case_when(grepl("^E", Var2)~"E", grepl("^L", Var2)~"L", grepl("^[MPS]", Var2)~"H", TRUE~"Other"))
+
+path_EL <- edges_bggm %>%
+    filter((Type1 == "E" & Type2 == "L") | (Type1 == "L" & Type2 == "E")) %>%
+    mutate(S = ifelse(Type1=="E", as.character(Var1), as.character(Var2)),
+           T = ifelse(Type1=="L", as.character(Var1), as.character(Var2)),
+           Key = paste0(make.names(S), "->", make.names(T))) %>%  
+    select(S, T, Strength, Key) %>% rename(E=S, L=T, Str1=Strength, Key1=Key)
+
+path_LH <- edges_bggm %>%
+    filter((Type1 == "L" & Type2 == "H") | (Type1 == "H" & Type2 == "L")) %>%
+    mutate(S = ifelse(Type1=="L", as.character(Var1), as.character(Var2)),
+           T = ifelse(Type1=="H", as.character(Var1), as.character(Var2)),
+           # apply make.names
+           Key = paste0(make.names(S), "->", make.names(T))) %>% 
+    select(S, T, Strength, Key) %>% rename(L=S, H=T, Str2=Strength, Key2=Key)
+  
+  full_path <- inner_join(path_EL, path_LH, by = "L") %>%
+    mutate(
+      Conf1 = Key1 %in% dag_keys,
+      Conf2 = Key2 %in% dag_keys,
+      Validation = case_when(
+        Conf1 & Conf2 ~ "Strong Chain (Both Steps DAG Verified)",
+        Conf1 | Conf2 ~ "Partial Chain (One Step DAG Verified)",
+        TRUE ~ "Associational Chain (BGGM Only)"),
+      
+      Width = (Str1 + Str2)/2,
+      Model = model_label
+    )
+  list_indirect[[model_label]] <- full_path
+}
+
+df_indirect <- bind_rows(list_indirect)
+
+if (nrow(df_indirect) > 0) {
+  df_indirect_viz <- df_indirect %>% filter(Width > 0.00) 
+  
+  if(nrow(df_indirect_viz) > 0) {
+    p4 <- ggplot(df_indirect_viz, aes(axis1 = E, axis2 = L, axis3 = H, y = Width)) +
+      geom_alluvium(aes(fill = Validation), width = 1/12, alpha = 0.8) +
+      geom_stratum(width = 1/6, fill = "grey95", color = "grey20") +
+      geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.5) +
+      scale_x_discrete(limits = c("Environment", "Lifestyle Mediator", "Health Outcome"), expand = c(.05, .05)) +
+      scale_fill_manual(values = c("Strong Chain (Both Steps DAG Verified)"="#2E8B57", 
+                                   "Partial Chain (One Step DAG Verified)"="#EEB422", 
+                                   "Associational Chain (BGGM Only)"="#B0C4DE")) +
+      facet_wrap(~Model, scales = "free") +
+      labs(title = "Figure 4: Indirect Pathways (E->L->H)", 
+           subtitle = paste0("Threshold: ", DAG_THRESHOLD, " (RDS Source)"),
+           fill = "Causal Evidence") +
+      theme_void() + theme(legend.position = "bottom", strip.text = element_text(face="bold"))
+    
+    ggsave(file.path(out_dir, "Figure4_Indirect_Alluvial.pdf"), p4, width = 16, height = 10)
+    print(p4)
+    message("Figure 4 complete.")
+  }
+} else {
+  message("Figure 4 not produced: no qualifying pathways found.")
+}
+
+message("\nAll figures updated; direct-RDS mode complete.")
+```
+

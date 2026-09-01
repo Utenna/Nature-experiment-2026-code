@@ -1,0 +1,1014 @@
+---
+title: "Results"
+author: "Xueming Liu"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    # Enable a table of contents
+    toc: true 
+    # TOC depth: 2 levels
+    toc_depth: 2 
+    # Optional custom Word template
+    # reference_docx: "custom_styles.docx"
+---
+
+
+# env set
+```{r setup, include=FALSE}
+# Global options
+
+# 1. Load core dependency packages
+# install.packages(c("mgm", "qgraph", "networktools", "dplyr", "gridExtra", "ggplot2", "missForest"))
+library(mgm)
+library(qgraph)
+library(networktools)
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+library(missForest)
+library(bruceR)    # provides import()
+library(here)
+
+# ==============================================================================
+# Path configuration
+# ==============================================================================
+data_raw_dir   <- here::here('Data', 'Raw')          # raw data (read-only)
+data_proc_dir  <- here::here('Data', 'Processed')    # intermediate outputs
+out_tables_dir <- here::here('Output', '01-Env-health', 'Tables')
+out_fig_dir    <- here::here('Output', '01-Env-health', 'Figures')
+
+# Ensure output directories exist
+dir.create(data_proc_dir,  showWarnings = FALSE, recursive = TRUE)
+dir.create(out_tables_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(out_fig_dir,    showWarnings = FALSE, recursive = TRUE)
+
+```
+
+
+
+
+# Summary: BGGM and DAG integration visulization
+```{r}
+# ==============================================================================
+# 0. Setup & global configuration
+# ==============================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(networktools) 
+library(tibble)
+library(ggalluvial)
+library(bnlearn) # required for the RDS objects
+
+# Path configuration
+out_dir     <- out_fig_dir
+out_dir_dag <- file.path(out_fig_dir)
+
+if(!dir.exists(out_dir)) dir.create(out_dir, recursive=TRUE)
+
+# DAG threshold (must match the Step 3 plotting)
+
+DAG_THRESHOLD <- 0.70  
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+
+# --- Colour scheme ---
+my_colors <- c(
+  "Environment"     = "#AEC7E8",  
+  "Lifestyle"       = "#98DF8A",  
+  "Mental_Health"   = "#D8BFD8",  
+  "Physical_Health" = "#FFBB78",  
+  "Social_Health"   = "#FFB6C1"   
+)
+
+
+heatmap_neg <- "#CD5C5C" 
+heatmap_mid <- "white"   
+heatmap_pos <- "#2E8B57"
+
+
+# ==============================================================================
+# 🎯 Figure 3 Combined: Shared Y-Axis + Dual Bridge Asterisks
+# ==============================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(networktools)
+library(tibble)
+library(bnlearn)
+library(patchwork)
+library(scales) 
+
+
+# Asterisk colours
+color_env_bridge <- "#800080" # purple (Environment)
+color_health_bridge <- "#0000FF" # blue (Health)
+
+message("\n========== Generating Figure 3 (dual asterisks) ==========")
+
+# --- Step 1: Gather data and compute bridge centrality ---
+list_edges <- list()
+all_y_nodes <- c() 
+
+for (model_label in models) {
+
+# A. Read BGGM (auto-detect separator)
+  # --------------------------------------------------------
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  
+  if (!file.exists(bggm_file)) {
+      message(paste0("Resid file not found, trying the NPN file..."))
+    bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  }
+  
+  if (!file.exists(bggm_file)) next
+
+  first_line <- readLines(bggm_file, n = 1)
+  
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  
+  if (ncol(raw_data) <= 1) {
+    message(paste0("   CSV format looks wrong (<=1 column), trying semicolon (;)..."))
+    raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  }
+  
+  if (ncol(raw_data) <= 1) {
+    message(paste0("   still unresolved, trying tab (\t)..."))
+    raw_data <- read.table(bggm_file, sep = "\t", header = TRUE, check.names = FALSE)
+  }
+
+  # 5. Handle row names
+  if (ncol(raw_data) > 1) {
+    rownames(raw_data) <- raw_data[, 1]
+    adj_mat <- as.matrix(raw_data[, -1])
+  } else {
+    message("   Serious error: could not parse data columns; check the CSV separator.")
+    message(paste0("   first line: ", first_line))
+    next
+  }
+
+  
+  # B. Bridge EI computation
+  node_names <- colnames(adj_mat)
+  communities_vec <- case_when(grepl("^E", node_names) ~ "Environment", grepl("^L", node_names) ~ "Lifestyle", TRUE ~ "Health")
+  
+  bridge_map <- tryCatch({
+    bridge_res <- networktools::bridge(adj_mat, communities = communities_vec, useCommunities = "all", directed = FALSE)
+    df_bridge <- data.frame(Node = node_names, Bridge_EI = bridge_res$`Bridge Expected Influence (1-step)`)
+    
+    # keep the top 20%
+    threshold <- quantile(df_bridge$Bridge_EI, 0.80, na.rm = TRUE) 
+    setNames((df_bridge$Bridge_EI >= threshold) & (df_bridge$Bridge_EI > 0), df_bridge$Node)
+    
+  }, error = function(e) setNames(rep(FALSE, length(node_names)), node_names))
+  
+  # C. Read the DAG
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  dag_status <- "not found / failed to load"
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0) {
+        # build safe keys
+        dag_keys <- paste0(make.names(dag_arcs$from), "->", make.names(dag_arcs$to))
+        dag_status <- paste0("loaded (edges: ", nrow(dag_arcs), ")")
+    } else {
+        dag_status <- "loaded but no edges (threshold too high?)"
+    }
+  }
+
+  # ============================================================
+  # Data integrity check (diagnostic)
+  # ============================================================
+  message(paste0("\n--------------------------------------------------"))
+  message(paste0("Checking model: [", model_label, "]"))
+  message(paste0("   1. BGGM matrix: ", nrow(adj_mat), " rows x ", ncol(adj_mat), " cols"))
+  message(paste0("   2. sample variable names: ", paste(head(node_names, 3), collapse=", ")))
+  message(paste0("   3. DAG status: ", dag_status))
+  
+  if(length(dag_keys) > 0) {
+      message(paste0("   4. sample DAG keys (make.names):"))
+      message(paste0("      -> ", head(dag_keys, 2)))
+  }
+  message(paste0("--------------------------------------------------\n"))
+  # ============================================================
+
+  
+# D. Build the data (direct matrix indexing)
+# -----------------------------------------------------------
+# 1. Ensure it is a matrix
+  adj_mat <- as.matrix(adj_mat)
+  
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  
+  if (nrow(indices) > 0) {
+    edges_df <- data.frame(
+      V1_str = rownames(adj_mat)[indices[, 1]],
+      V2_str = colnames(adj_mat)[indices[, 2]],
+      Freq   = adj_mat[indices],
+      stringsAsFactors = FALSE
+    )
+  } else {
+    edges_df <- data.frame(V1_str=character(), V2_str=character(), Freq=numeric())
+  }
+
+  edges_df <- edges_df %>% 
+    mutate(
+      Type_From = case_when(grepl("^E", .data$V1_str) ~ "E", grepl("^L", .data$V1_str) ~ "L", TRUE ~ "H"),
+      Type_To   = case_when(grepl("^E", .data$V2_str) ~ "E", grepl("^L", .data$V2_str) ~ "L", TRUE ~ "H")
+    ) %>%
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(
+      Source = ifelse(Type_From == "E", V1_str, V2_str),
+      Target = ifelse(Type_To == "H", V2_str, V1_str),
+      
+      Is_Env_Bridge = bridge_map[Source],
+      Is_Health_Bridge = bridge_map[Target],
+
+      Expected_Key = paste0(make.names(Source), "->", make.names(Target)),
+      Reverse_Key  = paste0(make.names(Target), "->", make.names(Source)),
+  
+      Direction_Type = case_when(
+        Expected_Key %in% dag_keys ~ "Expected (E->H)", 
+        Reverse_Key %in% dag_keys ~ "Reverse (H->E)", 
+        TRUE ~ NA_character_
+      )
+    )
+  
+  if (nrow(edges_df) > 0) {
+    list_edges[[model_label]] <- edges_df
+    all_y_nodes <- c(all_y_nodes, unique(edges_df$Source)) 
+  }
+}
+
+unified_y_levels <- sort(unique(all_y_nodes))
+
+# --- Step 2: Plot ---
+plot_list <- list()
+
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  if(is.null(list_edges[[model_label]])) next
+  df_curr <- list_edges[[model_label]]
+  clean_title <- gsub("_", " ", model_label)
+  show_y_axis <- (i == 1)
+  
+  p <- ggplot(df_curr, aes(x = Target, y = Source)) + 
+    coord_fixed(ratio = 1) +
+    
+    # 1. Heatmap
+    geom_tile(aes(fill = Freq), color = "white", linewidth = 0.5) + 
+    scale_fill_gradient2(low = heatmap_neg, mid = heatmap_mid, high = heatmap_pos, 
+                         midpoint = 0, limits = c(-0.1, 0.1), oob = scales::squish, name = "Partial Correlation") +
+    
+    # 2. Values
+    geom_text(aes(label = sprintf("%.3f", Freq)), size = 2.8, color = "black", fontface = "bold", position = position_nudge(y = -0.15)) +
+    
+    # 3. Environment asterisk (top-left, purple)
+    geom_text(data = subset(df_curr, Is_Env_Bridge), 
+              label = "*", color = color_env_bridge, size = 6, fontface = "bold",
+              position = position_nudge(x = -0.3, y = 0.25)) +
+    
+    # 4. Health asterisk (top-right, blue)
+    geom_text(data = subset(df_curr, Is_Health_Bridge), 
+              label = "*", color = color_health_bridge, size = 6, fontface = "bold",
+              position = position_nudge(x = 0.3, y = 0.25)) +
+    
+    # 5. Direction marker
+    geom_point(aes(shape = Direction_Type), color = "black", size = 3, na.rm = TRUE, position = position_nudge(y = 0.15)) +
+    geom_point(aes(shape = Direction_Type, color = Direction_Type), size = 2, na.rm = TRUE, position = position_nudge(y = 0.15)) +
+    
+    scale_shape_manual(values = c("Expected (E->H)" = 19, "Reverse (H->E)" = 17)) +
+    scale_color_manual(values = c("Expected (E->H)" = "#FFD700", "Reverse (H->E)" = "#CD5C5C")) +
+    scale_y_discrete(limits = unified_y_levels, drop = FALSE) +
+    
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "black"),
+      axis.text.y = if(show_y_axis) element_text(size = 9, color = "black") else element_blank(),
+      axis.title.y = if(show_y_axis) element_text(size = 10, face="bold") else element_blank(),
+      axis.ticks.y = if(show_y_axis) element_line() else element_blank(),
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      panel.border = element_rect(color = "grey80", fill = NA, linewidth = 0.5),
+      legend.position = "bottom",
+      legend.box = "horizontal"
+    ) +
+    labs(title = clean_title, x = NULL, y = if(show_y_axis) "Environmental Factors" else NULL)
+  
+  plot_list[[model_label]] <- p
+}
+
+# --- Step 3: Assemble panels ---
+if (length(plot_list) > 0) {
+  
+  combined_plot <- wrap_plots(plot_list, ncol = 3) + 
+    plot_layout(guides = "collect") + 
+    plot_annotation(
+      title = "Figure 3: Direct Pathways across Health Domains (Dual Bridge Markers)",
+      subtitle = paste0("Note: Top-Left Purple '*' = Environment Bridge; Top-Right Blue '*' = Health Bridge.\n", "Color range [-0.1, 0.1]. Shapes indicate DAG direction."),
+      theme = theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray30")
+      )
+    )
+  
+  ggsave(file.path(out_dir, "Figure3_Combined_DualStars.pdf"), combined_plot, width = 18, height = 7)
+  print(combined_plot)
+  message("Figure 3 (dual stars) complete.")
+  
+} else {
+  message("No data.")
+}
+
+# ==============================================================================
+# Refined Figure 3: bubble matrix (red/green)
+# ==============================================================================
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(here)
+library(networktools)
+
+message("\n========== Generating the red/green bubble matrix ==========")
+
+# --- 1. Paths and configuration ---
+source_dir <- out_fig_dir
+save_dir   <- out_fig_dir
+if(!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+
+models <- c("Mental_Health", "Physical_Health", "Social_Health")
+color_env_bridge <- "#800080" 
+color_health_bridge <- "#0000FF"
+
+# Colour scheme
+color_pos <- "#228B22"  # forest green (positive)
+color_neg <- "#EE2C2C"  # firebrick red (negative)
+color_mid <- "#F7F7F7"  # very light grey
+
+plot_list <- list()
+
+# --- 2. Loop ---
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  
+  # A. Read data
+  bggm_file <- file.path(source_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) bggm_file <- here::here("plot", paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  raw_data <- read.csv(bggm_file, check.names = FALSE)
+  if (ncol(raw_data) <= 1) raw_data <- read.csv(bggm_file, sep = ";", check.names = FALSE)
+  if (ncol(raw_data) > 1) { rownames(raw_data) <- raw_data[, 1]; adj_mat <- as.matrix(raw_data[, -1]) } else next
+
+  # B. Compute bridge centrality
+  node_names <- colnames(adj_mat)
+  communities_vec <- case_when(grepl("^E", node_names) ~ "Environment", grepl("^L", node_names) ~ "Lifestyle", TRUE ~ "Health")
+  bridge_map <- tryCatch({
+    bridge_res <- networktools::bridge(adj_mat, communities = communities_vec, useCommunities = "all", directed = FALSE)
+    df_bridge <- data.frame(Node = node_names, Bridge_EI = bridge_res$`Bridge Expected Influence (1-step)`)
+    threshold <- quantile(df_bridge$Bridge_EI, 0.80, na.rm = TRUE) 
+    setNames((df_bridge$Bridge_EI >= threshold) & (df_bridge$Bridge_EI > 0), df_bridge$Node)
+  }, error = function(e) setNames(rep(FALSE, length(node_names)), node_names))
+
+  # C. Extract edge data
+  indices <- which(adj_mat != 0, arr.ind = TRUE)
+  if(nrow(indices) == 0) next
+  df_curr <- data.frame(Source = rownames(adj_mat)[indices[, 1]], Target = colnames(adj_mat)[indices[, 2]], Freq = adj_mat[indices], stringsAsFactors = FALSE) %>%
+    mutate(Type_From = case_when(grepl("^E", Source) ~ "E", grepl("^L", Source) ~ "L", TRUE ~ "H"),
+           Type_To   = case_when(grepl("^E", Target) ~ "E", grepl("^L", Target) ~ "L", TRUE ~ "H")) %>%
+    filter((Type_From == "E" & Type_To == "H") | (Type_From == "H" & Type_To == "E")) %>%
+    mutate(Real_Source = ifelse(Type_From == "E", Source, Target), Real_Target = ifelse(Type_To == "H", Target, Source),
+           Is_Env_Bridge = bridge_map[Real_Source], Is_Health_Bridge = bridge_map[Real_Target]) %>%
+    dplyr::select(Source = Real_Source, Target = Real_Target, Freq, Is_Env_Bridge, Is_Health_Bridge)
+
+  if(nrow(df_curr) == 0) next
+  
+  # D. Plot (bubble plot)
+  clean_title <- gsub("_", " ", model_label)
+  show_y_axis <- (i == 1)
+  
+  p <- ggplot(df_curr, aes(x = Target, y = Source)) + 
+    coord_fixed(ratio = 1) +
+    geom_tile(fill = NA, color = "grey92", linewidth = 0.5) +
+    geom_point(aes(size = abs(Freq), fill = Freq), shape = 21, color = "white", stroke = 0.5) +
+    scale_size_continuous(range = c(6, 18), limits = c(0, 0.5), guide = "none") + 
+    
+    scale_fill_gradient2(low = color_neg, mid = color_mid, high = color_pos, 
+                         midpoint = 0, limits = c(-0.25, 0.25), oob = scales::squish, 
+                         name = "Partial Correlation") +
+    
+    geom_text(aes(label = sprintf("%.3f", Freq)), size = 3, fontface = "bold", 
+              color = ifelse(abs(df_curr$Freq) > 0.15, "white", "black")) +
+    geom_text(data = subset(df_curr, Is_Env_Bridge), label = "★", color = color_env_bridge, size = 5, vjust = 0.5, position = position_nudge(x = -0.35, y = 0.35)) +
+    geom_text(data = subset(df_curr, Is_Health_Bridge), label = "★", color = color_health_bridge, size = 5, vjust = 0.5, position = position_nudge(x = 0.35, y = 0.35)) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1, size = 10, color = "black", face = "bold"),
+          axis.text.y = if(show_y_axis) element_text(size = 10, color = "black", face = "bold") else element_blank(),
+          axis.title = element_blank(), plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+          panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8), legend.position = "bottom") +
+    labs(title = clean_title)
+  
+  plot_list[[model_label]] <- p
+}
+
+# --- 3. Assemble and save ---
+if (length(plot_list) > 0) {
+  combined_plot <- wrap_plots(plot_list, ncol = 3) + plot_layout(guides = "collect") + 
+    plot_annotation(
+      title = "Figure 3: Bilateral Relationships (Bubble Matrix)",
+      subtitle = "Bubble size = Magnitude; Color = Sign (Green = Positive, Red = Negative); ★ = Top 20% Bridge Node",
+      theme = theme(plot.title = element_text(size = 16, face = "bold"))
+    )
+  out_pdf <- file.path(save_dir, "Figure3_Combined_BubbleStyle_GreenRed.pdf")
+  ggsave(out_pdf, combined_plot, width = 18, height = 7)
+  message(paste("Red/green bubble plot saved to:", out_pdf))
+  print(combined_plot)
+} else {
+  message("No figure produced; check the data source.")
+}
+
+# ==============================================================================
+# Figure 3: final version (tile heatmap + combined bottom legend)
+# ==============================================================================
+library(ggplot2)
+library(patchwork)
+library(scales)
+
+# Asterisk colours
+color_env_bridge <- "#800080" # purple (Environment)
+color_health_bridge <- "#0000FF" # blue (Health)
+
+# Combined marker mapping (for the bottom legend)
+marker_shapes <- c("Expected (E->H)" = 19, 
+                   "Reverse (H->E)"  = 17, 
+                   "Env Bridge (*)"  = 8, 
+                   "Health Bridge (*)" = 8)
+
+marker_colors <- c("Expected (E->H)" = "#FFD700", 
+                   "Reverse (H->E)"  = "#CD5C5C", 
+                   "Env Bridge (*)"  = color_env_bridge, 
+                   "Health Bridge (*)" = color_health_bridge)
+
+message("\n========== Generating the tile version of Figure 3 ==========")
+
+plot_list <- list()
+
+for (i in seq_along(models)) {
+  model_label <- models[i]
+  if(is.null(list_edges[[model_label]])) next
+  
+  df_curr <- list_edges[[model_label]] 
+  clean_title <- gsub("_", " ", model_label)
+  show_y_axis <- (i == 1)
+  
+  # Unify Y-axis levels
+  df_curr$Source <- factor(df_curr$Source, levels = unified_y_levels)
+  
+  # Build a full grid so all cells align
+  full_grid <- expand.grid(
+    Target = unique(df_curr$Target),
+    Source = unified_y_levels
+  )
+  
+  # Drop rows with NA DAG status to avoid an NA in the legend
+  df_dag <- subset(df_curr, !is.na(Direction_Type))
+  if(nrow(df_dag) > 0) {
+    df_dag$Direction_Type <- factor(df_dag$Direction_Type, levels = c("Expected (E->H)", "Reverse (H->E)"))
+  }
+
+  p <- ggplot() + 
+    # 1. Checkerboard background (empty cells shown light grey)
+    geom_tile(data = full_grid, aes(x = Target, y = Source), 
+              fill = "grey95", color = "white", linewidth = 0.6) +
+              
+    # 2. Coloured data tiles
+    geom_tile(data = df_curr, aes(x = Target, y = Source, fill = Freq), 
+              color = "white", linewidth = 0.6) +
+               
+    scale_fill_gradient2(low = "#B22222", mid = "white", high = "#006400", 
+                         midpoint = 0, limits = c(-0.08, 0.08), oob = scales::squish, 
+                         name = "Partial Correlation") +
+    
+    # 3. Values, 2 decimals, centred
+    geom_text(data = df_curr, aes(x = Target, y = Source, label = sprintf("%.3f", Freq)), 
+              size = 2.6, vjust = 0.5, hjust = 0.5, fontface = "bold", 
+              # white text on dark fills, black on light fills
+              color = ifelse(abs(df_curr$Freq) > 0.059, "white", "black")) +
+    
+    # 4. Bridge-node markers (top-left / top-right of the tile)
+    geom_point(data = subset(df_curr, Is_Env_Bridge), 
+               aes(x = Target, y = Source, shape = "Env Bridge (*)", color = "Env Bridge (*)"), 
+               size = 2, stroke = 0.8,
+               position = position_nudge(x = -0.35, y = 0.35)) +
+               
+    geom_point(data = subset(df_curr, Is_Health_Bridge), 
+               aes(x = Target, y = Source, shape = "Health Bridge (*)", color = "Health Bridge (*)"), 
+               size = 2, stroke = 0.8,
+               position = position_nudge(x = 0.35, y = 0.35)) +
+    
+    # 5. DAG direction marker (below the tile)
+    geom_point(data = df_dag, aes(x = Target, y = Source, shape = as.character(Direction_Type)), 
+               color = "black", size = 2.8, position = position_nudge(y = -0.35), show.legend = FALSE) +
+    geom_point(data = df_dag, aes(x = Target, y = Source, shape = as.character(Direction_Type), color = as.character(Direction_Type)), 
+               size = 1.6, position = position_nudge(y = -0.35)) +
+               
+    # Shared shape / colour mapping
+    scale_shape_manual(values = marker_shapes, name = "Markers & DAG Direction", drop = FALSE) +
+    scale_color_manual(values = marker_colors, name = "Markers & DAG Direction", drop = FALSE) +
+    
+    # enlarge the asterisk in the legend
+    guides(
+      shape = guide_legend(override.aes = list(size = 3.5, stroke = 0.8)),
+      color = guide_legend(override.aes = list(size = 3.5, stroke = 0.8))
+    ) +
+    
+    # 6. Axes and layout
+    coord_fixed(ratio = 1.0) + 
+    scale_y_discrete(limits = unified_y_levels, drop = FALSE) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 0, hjust = 0.5, size = 9, color = "black", face = "bold"),
+      axis.text.y = if(show_y_axis) element_text(size = 8.5, color = "black", face = "bold") else element_blank(),
+      axis.title = element_blank(),
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+      legend.position = "bottom"
+    ) +
+    labs(title = clean_title)
+
+  plot_list[[model_label]] <- p
+}
+
+# --- Step 3: Assemble panels + global legend ---
+if (length(plot_list) > 0) {
+  
+  # Wrap panels and collect legends
+  combined_plot <- wrap_plots(plot_list, ncol = 3) + 
+                   plot_layout(guides = "collect")
+  
+  # Add title and global annotation
+  final_plot <- combined_plot + 
+    plot_annotation(
+      title = "Figure 3: Direct Pathways and Causal Directions across Health Domains",
+      caption = "Note: Cell color maps to partial correlation direction and strength. Grey cells indicate non-significant edges.",
+      theme = theme(
+        plot.title = element_text(size = 17, face = "bold", hjust = 0.5),
+        plot.caption = element_text(size = 10, hjust = 0, color = "gray20"),
+        # place the collected legend at the bottom, horizontal
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.margin = margin(t = 5),
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.title = element_text(size = 11, face = "bold")
+      )
+    )
+
+  # Save
+  out_pdf <- file.path(out_dir, "Figure3_Ultimate_Fusion_Heatmap.pdf")
+  ggsave(out_pdf, final_plot, width = 19, height = 9.5)
+  
+  print(final_plot)
+  message(paste("Tile version saved to:", out_pdf))
+  
+} else {
+  message("No data.")
+}
+
+```
+```{r}
+
+# ==============================================================================
+# 3. Figure 6: DAG summary (reads RDS directly)
+# ==============================================================================
+message("\n========== Generating Figure 6 (DAG summary) ==========")
+
+list_dag_summary <- list()
+
+for (model_label in models) {
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  
+  edges_bggm <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0, abs(Freq) > 0.02) %>%
+    rename(Node1 = Var1, Node2 = Var2) %>%
+    mutate(
+      Type1 = case_when(grepl("^E", Node1)~"E", grepl("^L", Node1)~"L", grepl("^[MPS]", Node1)~"H", TRUE~"O"),
+      Type2 = case_when(grepl("^E", Node2)~"E", grepl("^L", Node2)~"L", grepl("^[MPS]", Node2)~"H", TRUE~"O")
+    ) %>%
+    rowwise() %>%
+    mutate(Key = paste(sort(c(as.character(Node1), as.character(Node2))), collapse = "|")) %>%
+    ungroup() %>% distinct(Key, .keep_all = TRUE)
+  
+  # --- Read the RDS ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0){
+      from_safe <- make.names(dag_arcs$from)
+      to_safe   <- make.names(dag_arcs$to)
+      dag_keys  <- paste0(from_safe, "->", to_safe)
+    }
+  }
+
+classify_edge <- function(n1, n2, t1, t2) {
+    s1 <- make.names(n1)
+    s2 <- make.names(n2)
+
+    if(setequal(c(t1,t2), c("E","L"))) { 
+      p="E-L"; 
+      exp=paste0(ifelse(t1=="E",s1,s2),"->",ifelse(t1=="L",s1,s2)); 
+      rev=paste0(ifelse(t1=="L",s1,s2),"->",ifelse(t1=="E",s1,s2)) 
+    }
+    else if(setequal(c(t1,t2), c("L","H"))) { 
+      p="L-H"; 
+      exp=paste0(ifelse(t1=="L",s1,s2),"->",ifelse(t1=="H",s1,s2)); 
+      rev=paste0(ifelse(t1=="H",s1,s2),"->",ifelse(t1=="L",s1,s2)) 
+    }
+    else if(setequal(c(t1,t2), c("E","H"))) { 
+      p="E-H"; 
+      exp=paste0(ifelse(t1=="E",s1,s2),"->",ifelse(t1=="H",s1,s2)); 
+      rev=paste0(ifelse(t1=="H",s1,s2),"->",ifelse(t1=="E",s1,s2)) 
+    }
+    else return(NULL)
+    
+    stat <- "Undirected (BGGM Only)"
+    if(exp %in% dag_keys) stat <- "Directed (Expected)"
+    else if(rev %in% dag_keys) stat <- "Directed (Reverse)"
+    return(data.frame(Domain=p, Status=stat))
+}
+
+  res_list <- list()
+  for(i in 1:nrow(edges_bggm)) res_list[[i]] <- classify_edge(as.character(edges_bggm$Node1[i]), as.character(edges_bggm$Node2[i]), edges_bggm$Type1[i], edges_bggm$Type2[i])
+  df_sum <- bind_rows(res_list)
+  if(nrow(df_sum)>0) { df_sum$Model <- model_label; list_dag_summary[[model_label]] <- df_sum }
+}
+
+df_fig6 <- bind_rows(list_dag_summary)
+if(nrow(df_fig6)>0) {
+  p6 <- ggplot(df_fig6, aes(x=Domain, fill=Status)) +
+    geom_bar(position="stack", width=0.6) +
+    geom_text(stat='count', aes(label=after_stat(count)), position=position_stack(vjust=0.5), color="white", size=3) +
+    facet_wrap(~Model, scales="free_y") +
+    scale_fill_manual(values=c("Directed (Expected)"="#2E8B57", "Directed (Reverse)"="#CD5C5C", "Undirected (BGGM Only)"="#A9A9A9")) +
+    labs(title="Figure 6: Summary of Causal Directions", subtitle=paste0("Threshold: ", DAG_THRESHOLD, " (RDS Source)"), x="Domain Pair", y="Edge Count") +
+    theme_minimal() + theme(legend.position="bottom")
+  
+  ggsave(file.path(out_dir, "Figure6_DAG_Summary.pdf"), p6, width=12, height=8)
+  print(p6)
+  message("Figure 6 complete.")
+}
+
+# ==============================================================================
+# 4. Figure 4: indirect pathways (reads RDS directly)
+# ==============================================================================
+message("\n========== Generating Figure 4 (indirect pathways) ==========")
+
+list_indirect <- list()
+
+for (model_label in models) {
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) next
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  
+  # --- Read the RDS ---
+  rds_file <- file.path(out_dir_dag, paste0("Boot_Object_", model_label, ".rds"))
+  dag_keys <- character()
+  
+  if (file.exists(rds_file)) {
+    str_fit <- readRDS(rds_file)
+    avg_dag <- averaged.network(str_fit, threshold = DAG_THRESHOLD)
+    dag_arcs <- as.data.frame(avg_dag$arcs)
+    if(nrow(dag_arcs) > 0){
+      from_safe <- make.names(dag_arcs$from)
+      to_safe   <- make.names(dag_arcs$to)
+      dag_keys  <- paste0(from_safe, "->", to_safe)
+    }
+  }
+  
+  # Base edge list
+  edges_bggm <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0, abs(Freq) > 0.00) %>%
+    mutate(Strength = abs(Freq)) %>%
+    mutate(
+      Type1 = case_when(grepl("^E", Var1)~"E", grepl("^L", Var1)~"L", grepl("^[MPS]", Var1)~"H", TRUE~"Other"),
+      Type2 = case_when(grepl("^E", Var2)~"E", grepl("^L", Var2)~"L", grepl("^[MPS]", Var2)~"H", TRUE~"Other"))
+
+path_EL <- edges_bggm %>%
+    filter((Type1 == "E" & Type2 == "L") | (Type1 == "L" & Type2 == "E")) %>%
+    mutate(S = ifelse(Type1=="E", as.character(Var1), as.character(Var2)),
+           T = ifelse(Type1=="L", as.character(Var1), as.character(Var2)),
+           Key = paste0(make.names(S), "->", make.names(T))) %>%  
+    select(S, T, Strength, Key) %>% rename(E=S, L=T, Str1=Strength, Key1=Key)
+
+path_LH <- edges_bggm %>%
+    filter((Type1 == "L" & Type2 == "H") | (Type1 == "H" & Type2 == "L")) %>%
+    mutate(S = ifelse(Type1=="L", as.character(Var1), as.character(Var2)),
+           T = ifelse(Type1=="H", as.character(Var1), as.character(Var2)),
+           Key = paste0(make.names(S), "->", make.names(T))) %>% 
+    select(S, T, Strength, Key) %>% rename(L=S, H=T, Str2=Strength, Key2=Key)
+  
+  full_path <- inner_join(path_EL, path_LH, by = "L") %>%
+    mutate(
+      Conf1 = Key1 %in% dag_keys,
+      Conf2 = Key2 %in% dag_keys,
+      Validation = case_when(
+        Conf1 & Conf2 ~ "Strong Chain (Both Steps DAG Verified)",
+        Conf1 | Conf2 ~ "Partial Chain (One Step DAG Verified)",
+        TRUE ~ "Associational Chain (BGGM Only)"),
+      
+      Width = (Str1 + Str2)/2,
+      Model = model_label
+    )
+  list_indirect[[model_label]] <- full_path
+}
+
+df_indirect <- bind_rows(list_indirect)
+
+if (nrow(df_indirect) > 0) {
+  df_indirect_viz <- df_indirect %>% filter(Width > 0.00) 
+  
+  if(nrow(df_indirect_viz) > 0) {
+    p4 <- ggplot(df_indirect_viz, aes(axis1 = E, axis2 = L, axis3 = H, y = Width)) +
+      geom_alluvium(aes(fill = Validation), width = 1/12, alpha = 0.8) +
+      geom_stratum(width = 1/6, fill = "grey95", color = "grey20") +
+      geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.5) +
+      scale_x_discrete(limits = c("Environment", "Lifestyle Mediator", "Health Outcome"), expand = c(.05, .05)) +
+      scale_fill_manual(values = c("Strong Chain (Both Steps DAG Verified)"="#2E8B57", 
+                                   "Partial Chain (One Step DAG Verified)"="#EEB422", 
+                                   "Associational Chain (BGGM Only)"="#B0C4DE")) +
+      facet_wrap(~Model, scales = "free") +
+      labs(title = "Figure 4: Indirect Pathways (E->L->H)", 
+           subtitle = paste0("Threshold: ", DAG_THRESHOLD, " (RDS Source)"),
+           fill = "Causal Evidence") +
+      theme_void() + theme(legend.position = "bottom", strip.text = element_text(face="bold"))
+    
+    ggsave(file.path(out_dir, "Figure4_Indirect_Alluvial.pdf"), p4, width = 16, height = 10)
+    print(p4)
+    message("Figure 4 complete.")
+  }
+} else {
+  message("Figure 4 not produced: no qualifying pathways found.")
+}
+
+message("\nAll figures updated; direct-RDS mode complete.")
+
+
+
+# ==============================================================================
+# 🔍 Step 1: Linkage Diagnostic (Separate E-L and L-H Printing)
+# ==============================================================================
+message("\n========== Path diagnostics: E*L and L*H connectivity ==========")
+
+library(tidyverse)
+library(ggalluvial)
+
+process_diagnostic <- function(model_label) {
+  # 1. Read the file
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Health_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) {
+    message(paste("[", model_label, "] adjacency-matrix file not found"))
+    return(NULL)
+  }
+  
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  edges <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0) %>%
+    mutate(Strength = abs(Freq), 
+           V1 = trimws(as.character(Var1)), 
+           V2 = trimws(as.character(Var2)))
+  
+  # Node-type classification
+  get_type <- function(node) {
+    case_when(
+      grepl("^E", node) ~ "E",
+      grepl("^L", node) ~ "L",
+      grepl("^[MPS]", node) ~ "H",
+      TRUE ~ "Other"
+    )
+  }
+
+  # --- Handle the two groups separately ---
+  
+  # Group 1: E * L links
+  p_el <- edges %>%
+    filter((get_type(V1)=="E" & get_type(V2)=="L") | (get_type(V1)=="L" & get_type(V2)=="E")) %>%
+    mutate(E = ifelse(get_type(V1)=="E", V1, V2), 
+           L = ifelse(get_type(V1)=="L", V1, V2)) %>%
+    select(E, L, Strength) %>%
+    distinct()
+
+  # Group 2: L * H links
+  p_lh <- edges %>%
+    filter((get_type(V1)=="L" & get_type(V2)=="H") | (get_type(V1)=="H" & get_type(V2)=="L")) %>%
+    mutate(L = ifelse(get_type(V1)=="L", V1, V2), 
+           H = ifelse(get_type(V1)=="H", V1, V2)) %>%
+    select(L, H, Strength) %>%
+    distinct()
+
+  # --- Print diagnostics ---
+  message(paste0("\n--- Model [", model_label, "] diagnostic report ---"))
+  
+  message(paste(">>> [E * L]:", nrow(p_el), "edges"))
+  if(nrow(p_el) > 0) print(head(p_el, 10)) else message("!!! note: E*L is empty")
+  
+  message(paste("\n>>> [L * H]:", nrow(p_lh), "edges"))
+  if(nrow(p_lh) > 0) print(head(p_lh, 10)) else message("!!! note: L*H is empty")
+
+  # Merge
+  if(nrow(p_el) > 0 && nrow(p_lh) > 0) {
+    combined <- inner_join(p_el, p_lh, by = "L", suffix = c(".el", ".lh"), relationship = "many-to-many")
+    message(paste("\nMerge OK:", nrow(combined), "complete E-L-H chains"))
+    
+    combined <- combined %>%
+      mutate(Width = (Strength.el + Strength.lh) / 2, Model = model_label)
+    return(combined)
+  } else {
+    message("\nMerge failed: one side had no data, no triads formed")
+    return(NULL)
+  }
+}
+
+# Run diagnostics for the three models
+results_diag <- lapply(c("Mental", "Physical", "Social"), process_diagnostic)
+df_alluv <- bind_rows(results_diag)
+
+# --- Plot (only if data exist) ---
+if (!is.null(df_alluv) && nrow(df_alluv) > 0) {
+  p_diag <- ggplot(df_alluv, aes(axis1 = E, axis2 = L, axis3 = H, y = Width)) +
+    geom_alluvium(fill = "#D1D1D1", width = 1/12, alpha = 0.6, color = "white") +
+    geom_stratum(width = 1/5, fill = "white", color = "grey30") +
+    geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.5, fontface = "bold") +
+    scale_x_discrete(limits = c("Environment", "Lifestyle", "Health"), expand = c(.1, .1)) +
+    facet_wrap(~Model, ncol = 3, scales = "free_x") +
+    theme_minimal() + theme(panel.grid = element_blank(), axis.text.y = element_blank())
+  
+  ggsave("Figure4_Diagnostic_Wide.pdf", p_diag, width = 16, height = 8)
+  message("\nDiagnostic figure saved: Figure4_Diagnostic_Wide.pdf")
+} else {
+  message("\nFinal dataset empty; nothing to plot.")
+}
+
+# ==============================================================================
+# 🌈 Figure 4: System Activation Map (Lodes Format for Independent Links)
+# ==============================================================================
+message("\n========== Generating the activation / feedback map ==========")
+
+library(tidyverse)
+library(ggalluvial)
+
+process_diagnostic <- function(model_label) {
+  # 1. Read the file
+  bggm_file <- file.path(out_dir, paste0("adj_matrix_BGGM_", model_label, "_Health_Pearson_Resid.csv"))
+  if (!file.exists(bggm_file)) {
+    message(paste("[", model_label, "] adjacency-matrix file not found"))
+    return(NULL)
+  }
+  
+  adj_mat <- as.matrix(read.csv(bggm_file, row.names = 1))
+  edges <- as.data.frame(as.table(adj_mat)) %>%
+    filter(Freq != 0) %>%
+    mutate(Strength = abs(Freq), 
+           V1 = trimws(as.character(Var1)), 
+           V2 = trimws(as.character(Var2)))
+  
+  # Node-type classification
+  get_type <- function(node) {
+    case_when(
+      grepl("^E", node) ~ "E",
+      grepl("^L", node) ~ "L",
+      grepl("^[MPS]", node) ~ "H",
+      TRUE ~ "Other"
+    )
+  }
+
+  # --- Handle the two groups separately ---
+  p_el <- edges %>%
+    filter((get_type(V1)=="E" & get_type(V2)=="L") | (get_type(V1)=="L" & get_type(V2)=="E")) %>%
+    mutate(E = ifelse(get_type(V1)=="E", V1, V2), L = ifelse(get_type(V1)=="L", V1, V2)) %>%
+    select(E, L, Strength) %>% distinct()
+
+  p_lh <- edges %>%
+    filter((get_type(V1)=="L" & get_type(V2)=="H") | (get_type(V1)=="H" & get_type(V2)=="L")) %>%
+    mutate(L = ifelse(get_type(V1)=="L", V1, V2), H = ifelse(get_type(V1)=="H", V1, V2)) %>%
+    select(L, H, Strength) %>% distinct()
+
+  # --- Print diagnostics ---
+  message(paste0("\n--- Model [", model_label, "] diagnostic report ---"))
+  message(paste(">>> [E * L]:", nrow(p_el), "edges"))
+  if(nrow(p_el) > 0) print(head(p_el, 3))
+  message(paste(">>> [L * H]:", nrow(p_lh), "edges"))
+  if(nrow(p_lh) > 0) print(head(p_lh, 3))
+
+  # =========================================================================
+  # Convert to long (lodes) form to avoid NA errors
+  # =========================================================================
+  df_long <- data.frame()
+
+  # E-L flow: unique PathID per edge, pivot to long (E and L only)
+  if(nrow(p_el) > 0) {
+    el_long <- p_el %>%
+      mutate(
+        Evidence = ifelse(paste0(E, "->", L) %in% c("E5->L4", "E8->L16", "E8->L1", "E8->L3"),
+                          "Confirmed Forward (M2)", "Associational (BGGM)"),
+        Model = model_label,
+        PathID = paste0(model_label, "_EL_", row_number())
+      ) %>%
+      pivot_longer(cols = c(E, L), names_to = "Axis", values_to = "Node") %>%
+      select(Model, PathID, Axis, Node, Strength, Evidence)
+    
+    df_long <- bind_rows(df_long, el_long)
+  }
+
+  # L-H flow: unique PathID per edge, pivot to long (L and H only)
+  if(nrow(p_lh) > 0) {
+    rev_rules <- list(
+      Mental = c("M8->L9", "M1->L9", "M3->L9"),
+      Physical = c("P7->L9", "P5->L9", "P3->L4", "P2->L12"),
+      Social = character(0)
+    )[[model_label]]
+
+    lh_long <- p_lh %>%
+      mutate(
+        Key_Fwd = paste0(L, "->", H),
+        Key_Rev = paste0(H, "->", L),
+        Evidence = case_when(
+          Key_Fwd == "L4->P8" & model_label == "Physical" ~ "Confirmed Forward (M2)",
+          Key_Rev %in% rev_rules ~ "Reverse Feedback (H -> L)",
+          TRUE ~ "Associational (BGGM)"
+        ),
+        Model = model_label,
+        PathID = paste0(model_label, "_LH_", row_number())
+      ) %>%
+      pivot_longer(cols = c(L, H), names_to = "Axis", values_to = "Node") %>%
+      select(Model, PathID, Axis, Node, Strength, Evidence)
+    
+    df_long <- bind_rows(df_long, lh_long)
+  }
+
+  return(df_long)
+}
+
+# 1. Extract and combine
+results_diag <- lapply(c("Mental", "Physical", "Social"), process_diagnostic)
+df_alluv <- bind_rows(results_diag)
+
+# --- Plot ---
+if (!is.null(df_alluv) && nrow(df_alluv) > 0) {
+  
+  # Normalise axis order and evidence-type order
+  df_alluv$Axis <- factor(df_alluv$Axis, levels = c("E", "L", "H"))
+  df_alluv$Model <- factor(df_alluv$Model, levels = c("Mental", "Physical", "Social"))
+  df_alluv$Evidence <- factor(df_alluv$Evidence, 
+                              levels = c("Associational (BGGM)", 
+                                         "Reverse Feedback (H -> L)", 
+                                         "Confirmed Forward (M2)"))
+  
+  custom_colors <- c(
+    "Confirmed Forward (M2)"    = "#2E8B57", # green (DAG-directed)
+    "Reverse Feedback (H -> L)" = "#FF3030", # red (DAG feedback)
+    "Associational (BGGM)"      = "#D1D1D1"  # light grey (BGGM association)
+  )
+
+  # Plot in long form (x, stratum, alluvium)
+  p_diag <- ggplot(df_alluv, aes(x = Axis, stratum = Node, alluvium = PathID, y = Strength)) +
+    # flows
+    geom_alluvium(aes(fill = Evidence), width = 1/12, alpha = 0.75, color = "white") +
+    # nodes
+    geom_stratum(width = 1/5, fill = "white", color = "grey30") +
+    # text
+    geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.8, fontface = "bold") +
+    # x axis
+    scale_x_discrete(labels = c("Environment (E)", "Lifestyle (L)", "Health (H)"), expand = c(.1, .1)) +
+    scale_fill_manual(values = custom_colors) +
+    facet_wrap(~Model, ncol = 3, scales = "free_x") +
+    labs(
+      title = "Figure 4: System Activation Map (Independent Pathways)",
+      subtitle = "Visualizing E->L nudges and L<->H feedback as distinct flow systems",
+      fill = "Structural Evidence",
+      y = "BGGM Partial Correlation Strength"
+    ) +
+    theme_minimal() + 
+    theme(
+      panel.grid = element_blank(), 
+      axis.text.y = element_blank(),
+      legend.position = "bottom",
+      strip.text = element_text(size = 14, face = "bold"),
+      plot.title = element_text(size = 16, face = "bold")
+    )
+  
+  ggsave(file.path(out_dir, "Figure4_Activation_Map.pdf"), p_diag, width = 16, height = 9)
+  message("\nFigure saved: Figure4_Activation_Map.pdf")
+} else {
+  message("\nFinal dataset empty; nothing to plot.")
+}
+```
+

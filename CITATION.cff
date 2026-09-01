@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the associated article."
+title: "Analysis code for: A natural experiment in public housing and resident health"
+authors:
+  - family-names: Liu
+    given-names: Xueming
+  - family-names: Jiang
+    given-names: Bin
+license: MIT
+repository-code: "https://github.com/<ORG-OR-USER>/<REPO>"
+version: "1.0.0"
+date-released: "2026-XX-XX"
+preferred-citation:
+  type: article
+  title: "<final article title>"
+  authors:
+    - family-names: Liu
+      given-names: Xueming
+    - family-names: Jiang
+      given-names: Bin
+  journal: "Nature Cities"
+  year: 2026
+  doi: "<article DOI once assigned>"
