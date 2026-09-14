@@ -6,6 +6,13 @@ Data/
 *.rds
 *.RData
 
+results/
+*.xlsx
+*.xls
+*.csv
+*.rds
+*.RData
+
 # Code Ocean capsule: de-identified data is "peer-review reproduction only,
 # do not redistribute" per its own data/README.md — never publish it here,
 # even though it's de-identified.
