@@ -1,0 +1,7 @@
+# Python runtime for the Code Ocean "Reproducible Run" (01_balance_test.py).
+# Versions match the manuscript Reporting Summary (Python 3.13.2).
+# Only these three are needed at run time; openpyxl / pyreadr / jupyter are used
+# solely by 00_prepare_deidentified_data.py, which is NOT part of the run.
+pandas==2.3.1
+numpy==2.3.1
+scipy==1.16.0

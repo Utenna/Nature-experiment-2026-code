@@ -21,6 +21,10 @@ Files committed alongside this document:
 - `sessionInfo_R.txt` — output of `sessionInfo()` on the analysis machine (R 4.4.3, Windows).
 - `installed_packages.csv` — every R package installed on that machine, with versions.
 
+The capsule (`codeocean_capsule/environment/`) keeps its own copies of both, plus a
+version-pinned `install.R` and a Python `requirements.txt` — those are what the Code
+Ocean Reproducible Run actually installs from; see `docs/R-environment.md`.
+
 Note: this snapshot was taken after submission. Some packages had been updated on the
 machine in the interim (e.g. `sessionInfo_R.txt` shows lavaan 0.6.18 and BGGM 2.1.3),
 whereas the analyses reported in the manuscript were run under the "versions of record"
@@ -61,9 +65,11 @@ results; remove it from any dependency list.)
 
 ## Python packages
 
-Only the covariate-balance notebook (`python/balance_test/balance-test-ses.ipynb`) is in
-this repository; it imports `pandas`, `numpy`, `scipy` and reads `.xlsx` via `openpyxl`.
-The one-way ICC(1) is a hand-coded function in the notebook (no extra package).
+Only the covariate-balance script (`codeocean_capsule/code/01_balance_test.py`) is in
+this repository; it imports `pandas`, `numpy`, `scipy` and reads `data/data_balance.csv`.
+The one-way ICC(1) is a hand-coded function in the script (no extra package).
+`codeocean_capsule/code/00_prepare_deidentified_data.py` (provenance only, not run by
+`code/run`) additionally uses `openpyxl`/`pyreadr` to read the original `.xlsx`/`.RData`.
 
 Captured from the analysis kernel (`import x; x.__version__`):
 
