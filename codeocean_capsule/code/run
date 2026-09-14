@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Code Ocean entry point.  Reproduces the quantitative results of the study
+# from the de-identified data in /data. Writes all output to /results.
+#
+#   QUICK  (default 1) controls the heavy resampling steps (SEM bootstrap, BGGM
+#          MCMC, bnlearn boot.strength, bootnet case-dropping).
+#
+#     QUICK=1  reduced resampling; steps 01-05 finish in minutes. This is the
+#              DEFAULT so that a headless Code Ocean Reproducible Run always
+#              completes inside the run-time limit. It verifies that the
+#              pipeline runs end to end on the deposited data; the resampled
+#              numbers are approximate, NOT the published settings.
+#     QUICK=0  published settings for 01-05 (SEM 5000 bootstrap, BGGM 5000
+#              iter). Full run is ~5 h (dominated by 05) -- run locally or on
+#              an HPC node for comfort, though it CAN fit a single extended
+#              Code Ocean session. The full-precision comparison against the
+#              manuscript tables is archived in validation/ (05 to <=0.001).
+#
+#   06 (PC-stable DAG + bootnet stability) is NOT run by this script at any
+#   QUICK setting -- its published-settings wall clock is ~30 h, well beyond
+#   a single Code Ocean session, and even QUICK=1 isn't reliably short enough
+#   to risk inside a Reproducible Run's time limit. Its source is kept as
+#   code/06_dag.md (documentation, not executed) -- see that file and
+#   ../README.md for verification status and how to run it (needs a machine
+#   that can hold ~30 h: an interactive CO workstation across sessions, local,
+#   or HPC).
+#
+#   Set QUICK in the Code Ocean run parameters, or:  QUICK=0 bash run
+# =============================================================================
+set -euo pipefail
+
+export CO_DATA="${CO_DATA:-/data}"
+export CO_RESULTS="${CO_RESULTS:-/results}"
+export QUICK="${QUICK:-1}"
+mkdir -p "$CO_RESULTS"
+cd "$(dirname "$0")"
+
+echo "=================================================================="
+echo " ELH natural-experiment reproduction   QUICK=$QUICK"
+if [ "$QUICK" = "1" ]; then
+  echo " MODE: verification (reduced resampling; numbers approximate)."
+  echo "       Run QUICK=0 for published-precision output of steps 01-05 (~5 h)."
+else
+  echo " MODE: published settings for steps 01-05 (~5 h wall clock)."
+fi
+echo " Step 06 (PC-stable DAG + bootnet stability) is documented but not run"
+echo " by this script -- see code/06_dag.md and ../README.md (~30 h at"
+echo " published settings; beyond a single CO session at any QUICK setting)."
+echo " data:    $CO_DATA"
+echo " results: $CO_RESULTS"
+echo "=================================================================="
+
+echo; echo "### [1/5] Covariate balance test (Supplementary Table S12) ........"
+python3 01_balance_test.py
+
+echo; echo "### [2/5] Between-estate ICC on the analysis sample .............."
+Rscript 02_icc_check.R
+
+echo; echo "### [3/5] Scale reliability + CFA ..............................."
+Rscript 03_reliability_cfa.R
+
+echo; echo "### [4/5] Parallel-mediation SEM (lavaan) ......................."
+Rscript 04_sem_mediation.R
+
+echo; echo "### [5/5] BGGM networks (bnlearn DAG documented separately, not run) ."
+Rscript 05_bggm_network.R
+
+echo; echo "=================================================================="
+echo " done. Outputs in $CO_RESULTS ; validation/ holds the comparison CSVs."
+echo " Step 06 (DAG + stability) was not run -- see code/06_dag.md."
+echo "=================================================================="

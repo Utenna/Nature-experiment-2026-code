@@ -1,0 +1,49 @@
+# Code Ocean capsule metadata. Fill the fields marked TODO in the Code Ocean
+# UI at capsule-creation time; this file is a record of the intended values.
+# Keep it ANONYMOUS while the manuscript is in double-blind review.
+
+name: "ELH natural experiment - reproduction capsule"
+description: >
+  Reproduces the quantitative results of a natural-experiment study of Hong Kong
+  public-housing residents linking the residential environment, lifestyle and
+  health (covariate-balance test, between-estate ICC, scale reliability + CFA,
+  parallel-mediation SEM, Bayesian Gaussian Graphical Models, and PC-stable DAG
+  with bootstrap stability). Runs on de-identified data; the raw questionnaire
+  is restricted under HKU ethics approval EA1910004(A3).
+
+authors:
+  # TODO (post-acceptance): restore author list + ORCIDs + affiliations.
+  - name: "[redacted for peer review]"
+
+corresponding_contact: "B. Jiang (raw-data requests; see README)"
+
+license:
+  code: "MIT"          # TODO confirm
+  data: "Restricted - reviewer reproduction only; no redistribution (see data/README.md)"
+
+keywords:
+  - reproducibility
+  - natural experiment
+  - residential environment
+  - Bayesian Gaussian Graphical Model
+  - structural equation model
+  - public housing
+
+runtime:
+  entry: "code/run"
+  parameters:
+    QUICK: "1"   # default: reduced-resampling verification run (finishes in minutes)
+  notes: >
+    QUICK=1 (default) runs the whole pipeline with reduced resampling so a
+    headless Reproducible Run completes inside the Code Ocean run-time limit; it
+    verifies the pipeline end to end but the resampled numbers are approximate.
+    QUICK=0 uses the published settings (SEM 5000 bootstrap, BGGM 5000 iter,
+    boot.strength R=500, bootnet 1000) and takes ~35 h wall clock (05 ~5 h,
+    06 ~30 h) -- run locally or on an HPC node, not in a single Code Ocean
+    session. The full-precision comparison against the manuscript tables is
+    archived in validation/ (05 to <=0.001; 06 Mental-Health PHASE 2 identical).
+
+associated_manuscript:
+  journal: "Nature Cities"
+  status: "under review"
+  doi: "TODO"
