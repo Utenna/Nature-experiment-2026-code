@@ -17,8 +17,6 @@ approval **EA1910004(A3)** and cannot be shared. This capsule ships the
 code/
   run                        entry point (bash); orchestrates all steps
   paths.py / paths.R         /data (read-only in) and /results (out) shims
-  00_prepare_deidentified_data.py   PROVENANCE ONLY — how /data was built from
-                                    the restricted source; not run by `run`
   01_balance_test.py         covariate balance test  -> Supplementary Table S12
   02_icc_check.R             between-estate ICC on the analysis sample
   03_reliability_cfa.R       Cronbach alpha / McDonald omega + CFA fit
